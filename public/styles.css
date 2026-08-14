@@ -858,3 +858,13 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     display: none !important;
   }
 }
+
+.mobile-auth-link {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-auth-link {
+    display: block;
+  }
+}

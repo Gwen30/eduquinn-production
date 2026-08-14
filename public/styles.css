@@ -580,3 +580,59 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
 
 /* Phase 16 launch and certificate verification */
 .verify-shell{width:min(860px,calc(100% - 32px));margin:32px auto}.verify-shell>.brand{display:inline-flex;margin-bottom:28px}.verify-card{background:#fff;border:1px solid #eadbd4;border-radius:24px;padding:clamp(24px,5vw,52px);box-shadow:0 18px 60px rgba(18,18,18,.08)}.verify-card h1{margin:.25rem 0 .75rem}.verify-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:end;margin-top:28px}.verify-form label{display:grid;gap:8px;font-weight:700}.verify-form input{width:100%;min-height:52px;border:1px solid #dbcac2;border-radius:12px;padding:0 16px;font:inherit}.verify-result{margin-top:24px}.verify-valid,.verify-invalid{border-radius:18px;padding:22px;display:flex;gap:18px;align-items:flex-start}.verify-valid{background:#f1f8f3;border:1px solid #cce8d3}.verify-invalid{display:block;background:#fff1f1;border:1px solid #f1cccc}.verify-badge{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#2f7a49;color:#fff;font-size:24px;font-weight:800;flex:0 0 auto}@media(max-width:640px){.verify-form{grid-template-columns:1fr}.verify-form .btn{width:100%}.verify-valid{flex-direction:column}}
+
+/* Mobile header correction only */
+@media (max-width: 768px) {
+  .site-header,
+  .main-header,
+  .marketplace-header {
+    overflow: visible;
+  }
+
+  .header-actions,
+  .nav-actions,
+  .market-actions {
+    display: flex !important;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .wishlist-btn,
+  .cart-btn,
+  .header-icon-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+
+  .wishlist-btn {
+    order: 1;
+  }
+
+  .cart-btn {
+    order: 2;
+  }
+
+  .login-btn {
+    display: inline-flex !important;
+    order: 3;
+    white-space: nowrap;
+  }
+
+  .signup-btn {
+    display: inline-flex !important;
+    order: 4;
+    white-space: nowrap;
+  }
+
+  .header-search,
+  .search-wrap,
+  .market-search {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+}

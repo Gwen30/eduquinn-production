@@ -1,0 +1,11 @@
+(function(){
+'use strict';
+if(!EduQuinnAuth.session()){location.replace('/login.html?next='+encodeURIComponent(location.pathname));return}
+const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+const list=document.querySelector('#notificationList');
+async function load(){try{const x=await EduQuinnAuth.api('/api/notifications?limit=100');list.innerHTML=(x.notifications||[]).map(n=>`<a class="notification-item ${n.read_at?'':'unread'}" href="${esc(n.link||'#')}" data-id="${n.id}"><span class="notification-dot"></span><div><b>${esc(n.title)}</b><p>${esc(n.body||'')}</p><small>${new Date(n.created_at).toLocaleString()}</small></div></a>`).join('')||'<div class="empty">You have no notifications yet.</div>';list.querySelectorAll('[data-id]').forEach(a=>a.onclick=()=>{EduQuinnAuth.api(`/api/notifications/${a.dataset.id}/read`,{method:'POST',body:'{}'}).catch(()=>{})})}catch(e){list.innerHTML=`<div class="empty">${esc(e.message)}</div>`}}
+async function prefs(){try{const x=await EduQuinnAuth.api('/api/notification-preferences'),p=x.preferences||{};for(const [k,v] of Object.entries(p)){const el=document.querySelector(`[name="${k}"]`);if(el)el.checked=v!==false}document.querySelector('#emailStatus').textContent=x.emailConfigured?'Email delivery is configured.':'Email preferences are saved, but delivery requires BREVO_API_KEY.'}catch(e){document.querySelector('#emailStatus').textContent=e.message}}
+document.querySelector('#markAll').onclick=async()=>{await EduQuinnAuth.api('/api/notifications/read-all',{method:'POST',body:'{}'});await load()};
+document.querySelector('#notificationPreferences').onsubmit=async e=>{e.preventDefault();const names=['in_app_messages','email_messages','in_app_announcements','email_announcements','in_app_live_classes','email_live_classes'],body={};for(const n of names)body[n]=!!e.target.elements[n].checked;const b=e.submitter;b.disabled=true;try{await EduQuinnAuth.api('/api/notification-preferences',{method:'PUT',body:JSON.stringify(body)});b.textContent='Saved';setTimeout(()=>b.textContent='Save preferences',1500)}catch(err){alert(err.message)}finally{b.disabled=false}};
+const u=EduQuinnAuth.session();document.querySelector('#backHome').href=EduQuinnAuth.homeFor(u.role);load();prefs();
+})();

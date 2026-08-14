@@ -1,0 +1,2 @@
+const db=require('../db');
+(async()=>{if(!process.env.DATABASE_URL){console.error('DATABASE_URL is not configured.');process.exit(1)}const expired=await db.query('DELETE FROM sessions WHERE expires_at<=now() RETURNING id');const security=await db.query("DELETE FROM security_events WHERE created_at < now()-interval '180 days' RETURNING id");console.log(`Removed ${expired.rowCount} expired sessions and ${security.rowCount} old security events.`);if(db.pool)await db.pool.end()})().catch(e=>{console.error(e);process.exit(1)});

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="EduQuinn online course marketplace" />
+  <title>EduQuinn — Learn. Grow. Succeed.</title>
+  
+  
+  
+  <link rel="stylesheet" href="/styles.css" />
+<script src="/icons.js"></script><script src="/auth.js"></script><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632"></head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#home" aria-label="EduQuinn home">
+      <span class="brand-mark">EQ</span>
+      <span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span>
+    </a>
+    <button class="mobile-menu" id="mobileMenu" aria-label="Open menu"><span data-icon="menu"></span></button>
+    <nav id="mainNav">
+      <a href="#categories">Categories</a>
+      <a href="/live-classes.html">Live Classes <span class="live-pill">Live</span></a>
+      <a href="/my-learning.html">My Learning</a><a href="/messages.html">Messages</a><a href="/purchases.html">Purchases</a><a href="/business.html">EduQuinn Business</a>
+      <a href="/instructor.html">Instructor Studio</a>
+    </nav>
+    <div class="header-actions">
+      <label class="header-search"><input id="headerSearch" type="search" placeholder="Search courses..."/><span data-icon="search"></span></label>
+      <button class="wishlist-button" id="wishlistButton" aria-label="Wishlist"><span data-icon="heart"></span><b id="wishlistCount">0</b></button><button class="cart-button" id="cartButton" aria-label="Shopping cart"><span data-icon="cart"></span><b id="cartCount">0</b></button>
+      <a class="btn btn-ghost" href="/login.html">Log in</a>
+      <a class="btn btn-primary" href="/signup.html">Sign up</a>
+    </div>
+  </header>
+
+  <main id="home">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">LEARNING WITHOUT LIMITS</p>
+        <h1>Learn skills.<br/>Advance your <span>future.</span></h1>
+        <p>Explore practical courses, join live classes and learn from trusted instructors.</p>
+        <form class="hero-search" id="heroSearchForm">
+          <input id="heroSearch" type="search" placeholder="What do you want to learn today?" />
+          <button type="submit">Search</button>
+        </form>
+        
+      </div>
+      <div class="hero-visual">
+        <div class="portrait-card">
+          <div class="student-illustration">👩🏾‍💻</div>
+          <div class="floating-note">Keep learning.<br/><strong>You’re doing great!</strong></div>
+        </div>
+        <div class="stats-card" id="liveStats">
+          <div><span><span data-icon="graduation"></span></span><b id="studentStat">0</b><small>Students</small></div>
+          <div><span><span data-icon="book"></span></span><b id="courseStat">0</b><small>Published courses</small></div>
+          <div><span><span data-icon="users"></span></span><b id="instructorStat">0</b><small>Instructors</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="categories">
+      <div class="section-heading"><div><p class="eyebrow">EXPLORE</p><h2>Top categories</h2></div><button class="text-link" data-show-all>View all categories →</button></div>
+      <div class="category-grid" id="categoryGrid"></div><div class="stage-strip" id="educationStages" aria-label="Education stages"></div>
+    </section>
+
+    <section class="market-layout section">
+      <div class="course-content">
+        <div class="section-heading"><div><p class="eyebrow">HANDPICKED</p><h2>Featured courses</h2></div><button class="text-link" data-clear>View all →</button></div>
+        <div class="course-grid" id="featuredCourses"></div>
+        <div class="section-heading popular-heading"><div><p class="eyebrow">TRENDING</p><h2>Popular courses</h2></div></div>
+        <div class="compact-grid" id="popularCourses"></div>
+      </div>
+      <aside>
+        <article class="promo-card instructor" id="teach"><div><p class="eyebrow">SHARE KNOWLEDGE</p><h3>Become an Instructor</h3><p>Teach what you know and earn on EduQuinn.</p><a class="btn btn-primary" href="/signup.html?role=instructor">Start teaching</a></div><span class="promo-visual"><span data-icon="teacher"></span></span></article>
+        <article class="promo-card live" id="live"><div><p class="eyebrow">REAL-TIME LEARNING</p><h3>Live Classes <em>Live</em></h3><p>Interact with expert instructors in scheduled sessions.</p><a href="/live-classes.html">View upcoming classes →</a></div><span><span data-icon="calendar"></span></span></article>
+      </aside>
+    </section>
+
+    <section class="benefits section">
+      <article><span><span data-icon="tag"></span></span><div><b>Affordable</b><small>Quality education at fair prices</small></div></article>
+      <article><span><span data-icon="clock"></span></span><div><b>Flexible learning</b><small>Learn at your own pace</small></div></article>
+      <article><span><span data-icon="user"></span></span><div><b>Expert instructors</b><small>Learn from verified professionals</small></div></article>
+      <article><span><span data-icon="certificate"></span></span><div><b>Certificates</b><small>Showcase your achievement</small></div></article>
+      <article><span><span data-icon="shield"></span></span><div><b>Secure payments</b><small>Safe and reliable checkout</small></div></article>
+    </section>
+
+    <section class="business section" id="business">
+      <div><p class="eyebrow">EDUQUINN BUSINESS</p><h2>Build stronger teams through learning</h2><p>Assign courses, track progress and develop workplace skills from one platform.</p><a class="btn btn-primary" href="/business.html">Explore business plans</a></div>
+      <div class="business-art" aria-label="EduQuinn Business features">
+        <article><span data-icon="building"></span><div><b>Organisation accounts</b><small>Manage teams in one place</small></div></article>
+        <article><span data-icon="chart"></span><div><b>Progress analytics</b><small>Track learning outcomes</small></div></article>
+        <article><span data-icon="graduation"></span><div><b>Assigned learning</b><small>Create focused learning paths</small></div></article>
+      </div>
+    </section>
+  </main>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
+    <header><h2>Your cart</h2><button id="closeCart">×</button></header>
+    <div id="cartItems"></div>
+    <footer><div><span>Total</span><strong id="cartTotal">$0.00</strong></div><a class="btn btn-primary btn-full" id="checkoutButton" href="/checkout.html">Proceed to checkout</a></footer>
+  </aside>
+
+  <footer><div class="brand footer-brand"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></div><p>© 2026 EduQuinn. All rights reserved. · <a href="/verify-certificate.html">Verify certificate</a> · <a href="/support.html">Support</a></p></footer>
+  <script src="/app.js"></script>
+<script src="/pwa.js"></script></body>
+</html>

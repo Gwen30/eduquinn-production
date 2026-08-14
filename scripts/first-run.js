@@ -1,0 +1,2 @@
+const db=require('../db');
+(async()=>{if(!process.env.DATABASE_URL)throw new Error('DATABASE_URL is not configured.');await db.migrate();await db.query("INSERT INTO platform_launch_state(id,status,registrations_open,instructor_applications_open,public_certificate_verification) VALUES(1,'prelaunch',true,true,true) ON CONFLICT(id) DO NOTHING");console.log('Phase 16 database schema is ready.');console.log('Next: npm run seed:admin (if no admin exists), then npm run check:launch.');if(db.pool)await db.pool.end()})().catch(e=>{console.error(e.message);process.exit(1)});

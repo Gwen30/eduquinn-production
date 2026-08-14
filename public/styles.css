@@ -636,3 +636,77 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     flex: 1 1 100%;
   }
 }
+
+/* Mobile landing header fix */
+@media (max-width: 768px) {
+  .mobile-header-actions {
+    display: grid !important;
+    grid-template-columns: 48px 48px auto auto;
+    align-items: center;
+    justify-content: end;
+    gap: 10px;
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .mobile-header-actions .wishlist-btn,
+  .mobile-header-actions .cart-btn {
+    position: relative !important;
+    inset: auto !important;
+    margin: 0 !important;
+    width: 48px !important;
+    height: 48px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    flex: none !important;
+  }
+
+  .mobile-header-actions .login-btn,
+  .mobile-header-actions .signup-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    padding: 0 16px;
+    white-space: nowrap;
+    width: auto !important;
+    margin: 0 !important;
+  }
+
+  .mobile-header-actions .wishlist-btn {
+    grid-column: 1;
+  }
+
+  .mobile-header-actions .cart-btn {
+    grid-column: 2;
+  }
+
+  .mobile-header-actions .login-btn {
+    grid-column: 3;
+  }
+
+  .mobile-header-actions .signup-btn {
+    grid-column: 4;
+  }
+}
+
+@media (max-width: 420px) {
+  .mobile-header-actions {
+    grid-template-columns: 44px 44px 1fr 1fr;
+    gap: 8px;
+  }
+
+  .mobile-header-actions .wishlist-btn,
+  .mobile-header-actions .cart-btn {
+    width: 44px !important;
+    height: 44px !important;
+  }
+
+  .mobile-header-actions .login-btn,
+  .mobile-header-actions .signup-btn {
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+}

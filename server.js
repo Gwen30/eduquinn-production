@@ -195,7 +195,326 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
   if(mediaMatch&&req.method==='GET'){try{const r=await db.query('SELECT * FROM course_assets WHERE id=$1',[mediaMatch[1]]),a=r.rows[0];if(!a)return json(res,404,{message:'Media not found.'});let user=null;try{user=await currentUser(req)}catch{}let preview=false;if(a.kind==='thumbnail')preview=true;else{const pr=await db.query('SELECT 1 FROM lessons WHERE asset_id=$1 AND is_preview=true LIMIT 1',[a.id]);preview=!!pr.rowCount}if(!preview&&!(await canReadCourseMedia(user,a.course_id)))return json(res,user?403:401,{message:'Sign in with course access to view this media.'});const file=path.join(MEDIA_ROOT,a.stored_name);if(!fs.existsSync(file))return json(res,404,{message:'Media file is missing.'});return streamMedia(file,res,a.mime_type,Number(a.size_bytes),req)}catch(e){return dbFail(res,e)}}
   const lessonsMatch=url.pathname.match(/^\/api\/instructor\/courses\/([0-9a-f-]{36})\/lessons$/i);
   if(lessonsMatch&&req.method==='GET'){const u=await requireRole(req,res,['instructor','admin']);if(!u)return;try{if(!(await ownsCourse(u,lessonsMatch[1])))return json(res,403,{message:'You do not manage this course.'});const r=await db.query('SELECT l.*,a.original_name asset_name,a.kind asset_kind FROM lessons l LEFT JOIN course_assets a ON a.id=l.asset_id WHERE l.course_id=$1 ORDER BY l.position,l.created_at',[lessonsMatch[1]]);return json(res,200,{lessons:r.rows})}catch(e){return dbFail(res,e)}}
-  if(lessonsMatch&&req.method==='POST'){const u=await requireRole(req,res,['instructor','admin']);if(!u)return;try{const courseId=lessonsMatch[1];if(!(await ownsCourse(u,courseId)))return json(res,403,{message:'You do not manage this course.'});const x=await readJson(req),title=String(x.title||'').trim();if(title.length<2)return json(res,400,{message:'Lesson title is required.'});const id=uuid();await db.query('INSERT INTO lessons(id,course_id,title,lesson_type,position,asset_id,body,duration_seconds,is_preview) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[id,courseId,title,['video','article','quiz','assignment','resource'].includes(x.lessonType)?x.lessonType:'video',Number(x.position||0),x.assetId||null,String(x.body||''),Math.max(0,Number(x.durationSeconds||0)),!!x.isPreview]);return json(res,201,{id})}catch(e){return dbFail(res,e)}}
+  if (lessonsMatch && req.method === 'POST') {
+  const u = await requireRole(req, res, ['instructor', 'admin']);
+  if (!u) return;
+
+  try {
+    const courseId = lessonsMatch[1];
+
+    if (!(await ownsCourse(u, courseId))) {
+      return json(res, 403, {
+        message: 'You do not manage this course.'
+      });
+    }
+
+    const x = await readJson(req, 250000);
+
+    const title = String(x.title || '').trim();
+    const lessonType = [
+      'video',
+      'article',
+      'quiz',
+      'assignment',
+      'resource'
+    ].includes(x.lessonType)
+      ? x.lessonType
+      : 'video';
+
+    if (title.length < 2) {
+      return json(res, 400, {
+        message: 'Lesson title is required.'
+      });
+    }
+
+    const lessonId = uuid();
+
+    let body = String(x.body || '');
+
+    if (lessonType === 'assignment') {
+      const assignment = x.assignment || {};
+
+      body = JSON.stringify({
+        instructions:
+          String(assignment.instructions || '').trim(),
+
+        dueDate:
+          assignment.dueDate || null,
+
+        maxMarks:
+          Math.max(
+            1,
+            Number(assignment.maxMarks || 100)
+          )
+      });
+
+      if (!assignment.instructions) {
+        return json(res, 400, {
+          message: 'Assignment instructions are required.'
+        });
+      }
+    }
+
+    await db.query('BEGIN');
+
+    await db.query(
+      `INSERT INTO lessons(
+        id,
+        course_id,
+        title,
+        lesson_type,
+        position,
+        asset_id,
+        body,
+        duration_seconds,
+        is_preview,
+        metadata
+      )
+      VALUES(
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb
+      )`,
+      [
+        lessonId,
+        courseId,
+        title,
+        lessonType,
+        Number(x.position || 0),
+        x.assetId || null,
+        body,
+        Math.max(0, Number(x.durationSeconds || 0)),
+        !!x.isPreview,
+        JSON.stringify(
+          lessonType === 'assignment'
+            ? x.assignment || {}
+            : {}
+        )
+      ]
+    );
+
+    if (lessonType === 'quiz') {
+      const quiz = x.quiz || {};
+      const questions =
+        Array.isArray(quiz.questions)
+          ? quiz.questions
+          : [];
+
+      if (!questions.length) {
+        await db.query('ROLLBACK');
+
+        return json(res, 400, {
+          message: 'Add at least one quiz question.'
+        });
+      }
+
+      const assessmentId = uuid();
+
+      const passMark = Math.max(
+        0,
+        Math.min(100, Number(quiz.passMark || 70))
+      );
+
+      const maxAttempts = Math.max(
+        1,
+        Math.min(100, Number(quiz.maxAttempts || 3))
+      );
+
+      const timeLimit = Math.max(
+        0,
+        Math.min(
+          1440,
+          Number(quiz.timeLimitMinutes || 0)
+        )
+      );
+
+      await db.query(
+        `INSERT INTO assessments(
+          id,
+          course_id,
+          lesson_id,
+          title,
+          pass_mark,
+          instructions,
+          max_attempts,
+          time_limit_minutes,
+          shuffle_questions,
+          show_answers
+        )
+        VALUES(
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+        )`,
+        [
+          assessmentId,
+          courseId,
+          lessonId,
+          title,
+          passMark,
+          String(quiz.instructions || ''),
+          maxAttempts,
+          timeLimit,
+          !!quiz.shuffleQuestions,
+          quiz.showAnswers !== false
+        ]
+      );
+
+      for (
+        let i = 0;
+        i < questions.length;
+        i++
+      ) {
+        const q = questions[i] || {};
+
+        const prompt =
+          String(q.prompt || '').trim();
+
+        if (!prompt) {
+          await db.query('ROLLBACK');
+
+          return json(res, 400, {
+            message:
+              'Every quiz question requires question text.'
+          });
+        }
+
+        const type = [
+          'single',
+          'multiple',
+          'true_false',
+          'short_answer'
+        ].includes(q.type)
+          ? q.type
+          : 'single';
+
+        const rawOptions =
+          Array.isArray(q.options)
+            ? q.options
+            : [];
+
+        const options = rawOptions
+          .map((option, index) => ({
+            text:
+              String(option.text || '').trim(),
+
+            position:
+              Number(option.position || index + 1)
+          }))
+          .filter(option => option.text);
+
+        const correctAnswers = rawOptions
+          .map((option, index) => ({
+            index,
+            text:
+              String(option.text || '').trim(),
+
+            correct:
+              !!option.correct
+          }))
+          .filter(
+            option =>
+              option.correct && option.text
+          )
+          .map(option => ({
+            index: option.index,
+            text: option.text
+          }));
+
+        if (
+          type !== 'short_answer' &&
+          options.length < 2
+        ) {
+          await db.query('ROLLBACK');
+
+          return json(res, 400, {
+            message:
+              'Each quiz question needs at least two answers.'
+          });
+        }
+
+        if (!correctAnswers.length) {
+          await db.query('ROLLBACK');
+
+          return json(res, 400, {
+            message:
+              'Each quiz question requires a correct answer.'
+          });
+        }
+
+        if (
+          ['single', 'true_false'].includes(type) &&
+          correctAnswers.length !== 1
+        ) {
+          await db.query('ROLLBACK');
+
+          return json(res, 400, {
+            message:
+              'Single-answer questions must have exactly one correct answer.'
+          });
+        }
+
+        await db.query(
+          `INSERT INTO assessment_questions(
+            id,
+            assessment_id,
+            prompt,
+            options,
+            correct_index,
+            position,
+            question_type,
+            correct_answers,
+            marks,
+            explanation
+          )
+          VALUES(
+            $1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10
+          )`,
+          [
+            uuid(),
+            assessmentId,
+            prompt,
+            JSON.stringify(options),
+            correctAnswers.length === 1
+              ? correctAnswers[0].index
+              : null,
+            Number(q.position || i + 1),
+            type,
+            JSON.stringify(correctAnswers),
+            Math.max(1, Number(q.marks || 1)),
+            String(q.explanation || '')
+          ]
+        );
+      }
+    }
+
+    await db.query('COMMIT');
+
+    await audit(
+      u,
+      'lesson.created',
+      'course',
+      courseId,
+      {
+        lessonId,
+        lessonType,
+        title
+      }
+    );
+
+    return json(res, 201, {
+      id: lessonId,
+      lessonType
+    });
+
+  } catch (e) {
+    try {
+      await db.query('ROLLBACK');
+    } catch {}
+
+    return e.status
+      ? json(res, e.status, {
+          message: e.message
+        })
+      : dbFail(res, e);
+  }
+}
   const learningMatch=url.pathname.match(/^\/api\/learning\/courses\/([0-9a-f-]{36})$/i);
   if(learningMatch&&req.method==='GET'){const u=await requireRole(req,res,['student']);if(!u)return;try{const enr=await db.query('SELECT 1 FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,learningMatch[1]]);if(!enr.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});const r=await db.query(`SELECT l.id,l.title,l.lesson_type,l.position,l.duration_seconds,l.is_preview,l.asset_id,COALESCE(p.completed,false) completed,COALESCE(p.position_seconds,0) position_seconds FROM lessons l LEFT JOIN lesson_progress p ON p.lesson_id=l.id AND p.student_id=$1 WHERE l.course_id=$2 ORDER BY l.position,l.created_at`,[u.id,learningMatch[1]]);return json(res,200,{lessons:r.rows})}catch(e){return dbFail(res,e)}}
   const progressMatch=url.pathname.match(/^\/api\/learning\/lessons\/([0-9a-f-]{36})\/progress$/i);

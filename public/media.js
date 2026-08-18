@@ -94,14 +94,14 @@ async function init(){
       </div>
 
       <label class=\"check\">
-        <input id=\"quizShuffleQuestions\" type=\"checkbox\">
-        Randomise question order
-      </label>
+  <input id=\"quizShuffleQuestions\" type=\"checkbox\">
+  <span>Randomise question order</span>
+</label>
 
       <label class=\"check\">
-        <input id=\"quizShowAnswers\" type=\"checkbox\" checked>
-        Show answers after submission
-      </label>
+  <input id=\"quizShowAnswers\" type=\"checkbox\" checked>
+  <span>Show answers after submission</span>
+</label>
 
       <div class=\"quiz-builder-head\">
         <h3>Questions</h3>
@@ -166,9 +166,9 @@ async function init(){
     </div>
 
     <label class=\"check\">
-      <input id=\"lessonPreview\" type=\"checkbox\">
-      Allow public preview
-    </label>
+  <input id=\"lessonPreview\" type=\"checkbox\">
+  <span>Allow public preview</span>
+</label>
 
     <button class=\"btn btn-primary\" type=\"submit\">
       Add lesson

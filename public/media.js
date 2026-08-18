@@ -501,7 +501,85 @@ if (addQuizQuestionButton) {
   return '';
 }
   async function loadCourses(){try{const x=await EduQuinnAuth.api('/api/instructor/courses');const c=x.courses||[];courseSelect.innerHTML=c.length?c.map(v=>`<option value="${v.id}">${esc(v.title)}</option>`).join(''):'<option value="">Create a database-backed course first</option>';if(c.length)await refresh()}catch(e){courseSelect.innerHTML='<option value="">Unable to load courses</option>';status.textContent=e.message}}
-  async function refresh(){const id=courseSelect.value;if(!id){assetList.innerHTML='<p>No course selected.</p>';lessonList.innerHTML='';return}try{const [a,l]=await Promise.all([EduQuinnAuth.api(`/api/instructor/courses/${id}/assets`),EduQuinnAuth.api(`/api/instructor/courses/${id}/lessons`)]);assets=a.assets||[];assetSelect.innerHTML='<option value="">No media</option>'+assets.map(v=>`<option value="${v.id}">${esc(v.original_name)} (${v.kind})</option>`).join('');assetList.innerHTML=assets.length?assets.map(v=>`<div class="asset-row"><span>${iconSvg(v.kind==='video'?'play':v.kind==='thumbnail'?'image':'book')}</span><div><b>${esc(v.original_name)}</b><small>${esc(v.kind)} · ${fmt(v.size_bytes)}</small></div><a class="table-action" href="/api/media/${v.id}" target="_blank">Open</a></div>`).join(''):'<p>No media uploaded for this course yet.</p>';const lessons=l.lessons||[];lessonList.innerHTML=lessons.length?lessons.map((v,i)=>`<div class="asset-row"><span>${i+1}</span><div><b>${esc(v.title)}</b><small>${esc(v.lesson_type)}${v.asset_name?' · '+esc(v.asset_name):''}${v.is_preview?' · Public preview':''}</small></div><span>${v.is_preview?'Preview':'Protected'}</span></div>`).join(''):'<p>No database lessons added yet.</p>'}catch(e){status.textContent=e.message}}
+  async function refresh(){const id=courseSelect.value;if(!id){assetList.innerHTML='<p>No course selected.</p>';
+  lessonList.innerHTML = lessons.length
+  ? lessons.map((v, i) => {
+
+      const typeLabels = {
+        video: 'Video lesson',
+        article: 'Article',
+        quiz: 'Quiz',
+        assignment: 'Assignment',
+        resource: 'Learning resource'
+      };
+
+      const typeLabel =
+        typeLabels[v.lesson_type] || 'Lesson';
+
+      const accessLabel =
+        v.is_preview
+          ? 'Public preview'
+          : 'Enrolled students only';
+
+      const assetText =
+        v.asset_name
+          ? '<span class="curriculum-meta-item">File: ' +
+            esc(v.asset_name) +
+            '</span>'
+          : '';
+
+      return `
+        <article class="curriculum-item">
+
+          <div class="curriculum-order">
+            ${i + 1}
+          </div>
+
+          <div class="curriculum-details">
+
+            <div class="curriculum-title-row">
+              <h3>${esc(v.title)}</h3>
+
+              <span class="curriculum-type">
+                ${esc(typeLabel)}
+              </span>
+            </div>
+
+            <div class="curriculum-meta">
+
+              <span class="curriculum-meta-item">
+                Type: ${esc(typeLabel)}
+              </span>
+
+              ${assetText}
+
+              <span class="curriculum-access ${
+                v.is_preview ? 'preview' : 'protected'
+              }">
+                ${
+                  v.is_preview
+                    ? 'Public preview'
+                    : 'Enrolled students only'
+                }
+              </span>
+
+            </div>
+
+          </div>
+
+        </article>
+      `;
+    }).join('')
+
+  : `
+    <div class="curriculum-empty">
+      <h3>No lessons added yet</h3>
+      <p>
+        Add videos, articles, quizzes, assignments or resources
+        to build this course.
+      </p>
+    </div>
+  `;return}try{const [a,l]=await Promise.all([EduQuinnAuth.api(`/api/instructor/courses/${id}/assets`),EduQuinnAuth.api(`/api/instructor/courses/${id}/lessons`)]);assets=a.assets||[];assetSelect.innerHTML='<option value="">No media</option>'+assets.map(v=>`<option value="${v.id}">${esc(v.original_name)} (${v.kind})</option>`).join('');assetList.innerHTML=assets.length?assets.map(v=>`<div class="asset-row"><span>${iconSvg(v.kind==='video'?'play':v.kind==='thumbnail'?'image':'book')}</span><div><b>${esc(v.original_name)}</b><small>${esc(v.kind)} · ${fmt(v.size_bytes)}</small></div><a class="table-action" href="/api/media/${v.id}" target="_blank">Open</a></div>`).join(''):'<p>No media uploaded for this course yet.</p>';const lessons=l.lessons||[];lessonList.innerHTML=lessons.length?lessons.map((v,i)=>`<div class="asset-row"><span>${i+1}</span><div><b>${esc(v.title)}</b><small>${esc(v.lesson_type)}${v.asset_name?' · '+esc(v.asset_name):''}${v.is_preview?' · Public preview':''}</small></div><span>${v.is_preview?'Preview':'Protected'}</span></div>`).join(''):'<p>No database lessons added yet.</p>'}catch(e){status.textContent=e.message}}
   courseSelect.onchange=refresh;document.querySelector('#createBackendCourse').onclick=async()=>{const title=prompt('Course title');if(!title)return;const educationLevel=prompt('Education level: Primary, Secondary, A-Level, Tertiary or Professional','Professional')||'Professional';const category=prompt('Category or subject','Education')||'Education';const price=Number(prompt('Price in USD','0')||0);try{const x=await EduQuinnAuth.api('/api/instructor/courses',{method:'POST',body:JSON.stringify({title,educationLevel,category,price})});status.textContent='Database course created.';await loadCourses();courseSelect.value=x.id;await refresh()}catch(e){status.textContent=e.message}};
   document.querySelector('#uploadMedia').onclick=async()=>{const file=document.querySelector('#mediaFile').files[0],courseId=courseSelect.value,kind=document.querySelector('#mediaKind').value,bar=document.querySelector('#uploadBar');if(!courseId)return status.textContent='Select a course first.';if(!file)return status.textContent='Choose a file to upload.';status.textContent='Uploading…';bar.style.width='15%';try{const r=await fetch(`/api/instructor/courses/${courseId}/assets?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(file.name)}`,{method:'PUT',credentials:'same-origin',headers:{'Content-Type':file.type||'application/octet-stream'},body:file});bar.style.width='85%';const x=await r.json();if(!r.ok)throw new Error(x.message||'Upload failed');bar.style.width='100%';status.textContent='Upload complete.';document.querySelector('#mediaFile').value='';await refresh();setTimeout(()=>bar.style.width='0',700)}catch(e){bar.style.width='0';status.textContent=e.message}};
   document.querySelector('#lessonForm').onsubmit = async e => {

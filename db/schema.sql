@@ -427,3 +427,45 @@ CREATE TABLE IF NOT EXISTS platform_launch_state (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO platform_launch_state(id) VALUES(1) ON CONFLICT(id) DO NOTHING;
+
+-- Advanced lesson and quiz builder
+
+ALTER TABLE assessments
+  ADD COLUMN IF NOT EXISTS instructions text;
+
+ALTER TABLE assessments
+  ADD COLUMN IF NOT EXISTS max_attempts integer
+  NOT NULL DEFAULT 3;
+
+ALTER TABLE assessments
+  ADD COLUMN IF NOT EXISTS time_limit_minutes integer
+  NOT NULL DEFAULT 0;
+
+ALTER TABLE assessments
+  ADD COLUMN IF NOT EXISTS shuffle_questions boolean
+  NOT NULL DEFAULT false;
+
+ALTER TABLE assessments
+  ADD COLUMN IF NOT EXISTS show_answers boolean
+  NOT NULL DEFAULT true;
+
+
+ALTER TABLE assessment_questions
+  ADD COLUMN IF NOT EXISTS question_type varchar(30)
+  NOT NULL DEFAULT 'single';
+
+ALTER TABLE assessment_questions
+  ADD COLUMN IF NOT EXISTS correct_answers jsonb
+  NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE assessment_questions
+  ADD COLUMN IF NOT EXISTS marks integer
+  NOT NULL DEFAULT 1;
+
+ALTER TABLE assessment_questions
+  ADD COLUMN IF NOT EXISTS explanation text;
+
+
+ALTER TABLE lessons
+  ADD COLUMN IF NOT EXISTS metadata jsonb
+  NOT NULL DEFAULT '{}'::jsonb;

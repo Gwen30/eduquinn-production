@@ -1,4 +1,56 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign up — EduQuinn</title><link rel="stylesheet" href="/styles.css"><script src="/icons.js"></script><script src="/auth.js"></script><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632"></head><body class="auth-body"><a class="brand auth-brand" href="/"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></a><main class="auth-card"><p class="eyebrow">JOIN EDUQUINN</p><h1>Create your account</h1><p class="auth-intro">Choose whether you are joining to learn or teach. Instructor applications include a primary expertise so EduQuinn can personalise onboarding and course tools.</p><form id="authForm"><label>Full name<input id="name" required autocomplete="name" placeholder="Your full name"></label><label>Email address<input id="email" type="email" required autocomplete="email" placeholder="you@example.com"></label><label>I want to join as<select id="role"><option value="student">Student</option><option value="instructor">Instructor</option></select></label><label id="expertiseWrap" hidden>Primary expertise<select id="expertise"><optgroup label="School education"><option>Primary Education</option><option>Secondary Education</option><option>A-Level / Advanced Secondary</option><option>Mathematics</option><option>English Language & Literature</option><option>Sciences (General)</option><option>Biology</option><option>Chemistry</option><option>Physics</option><option>Geography</option><option>History</option><option>Religious Studies</option><option>Languages</option></optgroup><optgroup label="Tertiary & professional"><option>Engineering</option><option>Chemical Engineering</option><option>Mechanical Engineering</option><option>Electrical & Electronic Engineering</option><option>Civil Engineering</option><option>Mining & Metallurgical Engineering</option><option>Medicine & Health Sciences</option><option>Nursing</option><option>Pharmacy</option><option>Law</option><option>Agriculture</option><option>Education & Teaching</option><option>Business & Management</option><option>Accounting</option><option>Finance</option><option>Economics</option><option>Project Management</option><option>Human Resources</option><option>Supply Chain & Logistics</option></optgroup><optgroup label="Technology & digital skills"><option>Information Technology</option><option>Computer Science</option><option>Programming</option><option>Web Development</option><option>Mobile App Development</option><option>Data Science & Analytics</option><option>Artificial Intelligence & Machine Learning</option><option>Cybersecurity</option><option>Cloud Computing</option><option>Networking</option><option>Database Management</option></optgroup><optgroup label="Creative, vocational & personal"><option>Graphic Design</option><option>UI/UX Design</option><option>Photography & Video</option><option>Music</option><option>Marketing</option><option>Digital Marketing</option><option>Entrepreneurship</option><option>Sales</option><option>Communication & Public Speaking</option><option>Personal Development</option><option>Technical & Vocational Trades</option><option>Other / Multidisciplinary</option></optgroup></select></label><label>Password<input id="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label><label class="check"><input type="checkbox" required> I agree to the terms and privacy policy</label><p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Create account</button></form><p>Already registered? <a href="/login.html">Log in</a></p></main><script>
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign up — EduQuinn</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/icons.js"></script><script src="/auth.js">
+    
+  </script><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632">
+</head><body class="auth-body"><a class="brand auth-brand" href="/"><span class="brand-mark">EQ</span>
+  <span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></a><main class="auth-card">
+    <p class="eyebrow">JOIN EDUQUINN</p><h1>Create your account</h1>
+    <p class="auth-intro">Choose whether you are joining to learn or teach. Instructor applications include a primary expertise so EduQuinn can personalise onboarding and course tools.</p>
+    <form id="authForm"><label>Full name<input id="name" required autocomplete="name" placeholder="Your full name"></label>
+      <label>Email address<input id="email" type="email" required autocomplete="email" placeholder="you@example.com"></label>
+      <label>I want to join as<select id="role"><option value="student">Student</option>
+        <option value="instructor">Instructor</option></select></label>
+      <label id="expertiseWrap" hidden>Primary expertise<select id="expertise"><optgroup label="School education">
+        <option>Primary Education</option><option>Secondary Education</option>
+        <option>A-Level / Advanced Secondary</option><option>Mathematics</option>
+        <option>English Language & Literature</option><option>Sciences (General)</option>
+        <option>Biology</option><option>Chemistry</option><option>Physics</option>
+        <option>Geography</option><option>History</option><option>Religious Studies</option>
+        <option>Languages</option></optgroup><optgroup label="Tertiary & professional">
+          <option>Engineering</option><option>Chemical Engineering</option><option>Mechanical Engineering</option>
+          <option>Electrical & Electronic Engineering</option><option>Civil Engineering</option>
+          <option>Mining & Metallurgical Engineering</option><option>Medicine & Health Sciences</option>
+          <option>Nursing</option><option>Pharmacy</option><option>Law</option><option>Agriculture</option>
+          <option>Education & Teaching</option><option>Business & Management</option><option>Accounting</option>
+          <option>Finance</option><option>Economics</option><option>Project Management</option>
+          <option>Human Resources</option><option>Supply Chain & Logistics</option></optgroup>
+        <optgroup label="Technology & digital skills"><option>Information Technology</option>
+          <option>Computer Science</option><option>Programming</option><option>Web Development</option>
+          <option>Mobile App Development</option><option>Data Science & Analytics</option>
+          <option>Artificial Intelligence & Machine Learning</option><option>Cybersecurity</option>
+          <option>Cloud Computing</option><option>Networking</option><option>Database Management</option>
+        </optgroup><optgroup label="Creative, vocational & personal"><option>Graphic Design</option>
+          <option>UI/UX Design</option><option>Photography & Video</option><option>Music</option>
+          <option>Marketing</option><option>Digital Marketing</option><option>Entrepreneurship</option>
+          <option>Sales</option><option>Communication & Public Speaking</option>
+          <option>Personal Development</option><option>Technical & Vocational Trades</option>
+          <option>Other / Multidisciplinary</option></optgroup></select></label>
+      <label>Password<input id="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label>
+      <label class="check">
+  <input id="terms" type="checkbox" required>
+
+  <span>
+    I have read and agree to the
+    <a
+      href="/instructor-policy.html"
+      target="_blank"
+      rel="noopener">
+      EduQuinn Instructor Terms & Privacy Policy
+    </a>
+  </span>
+</label>
+      <p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Create account</button></form><p>Already registered? <a href="/login.html">Log in</a></p></main><script>
 (()=>{
   const form=document.getElementById('authForm');
   const nameInput=document.getElementById('name');

@@ -1889,3 +1889,61 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     padding: 13px !important;
   }
 }
+
+#lessonForm .lesson-check {
+  display: grid !important;
+  grid-template-columns: 20px minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 10px !important;
+
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#lessonForm .lesson-check input[type="checkbox"] {
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  min-height: 18px !important;
+  max-width: 18px !important;
+  max-height: 18px !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+}
+
+#lessonForm .lesson-check span {
+  display: block !important;
+  min-width: 0 !important;
+  width: 100% !important;
+
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+}
+
+@media (max-width: 600px) {
+
+  #lessonForm .lesson-check {
+    grid-template-columns: 18px minmax(0, 1fr) !important;
+    gap: 9px !important;
+  }
+
+  #lessonForm .lesson-check span {
+    font-size: 14px !important;
+  }
+
+  #lessonForm > button[type="submit"] {
+    width: 100% !important;
+  }
+}

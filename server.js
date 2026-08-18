@@ -170,6 +170,219 @@ async function api(req,res,url){
   if(url.pathname==='/api/instructor/courses'&&req.method==='POST'){
     const u=await requireRole(req,res,['instructor','admin']);if(!u)return;try{const x=await readJson(req),title=String(x.title||'').trim();if(title.length<4)return json(res,400,{message:'Course title is required.'});const id=uuid(),slug=slugify(title)+'-'+id.slice(0,8);await db.query(`INSERT INTO courses(id,instructor_id,title,slug,subtitle,description,education_level,category,price_cents,currency,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'USD','draft')`,[id,u.id,title,slug,String(x.subtitle||''),String(x.description||''),String(x.educationLevel||'professional'),String(x.category||''),Math.max(0,Math.round(Number(x.price||0)*100))]);await audit(u,'course.created','course',id,{title});return json(res,201,{id,slug})}catch(e){return dbFail(res,e)}
   }
+  const instructorCourseMatch =
+  url.pathname.match(
+    /^\/api\/instructor\/courses\/([0-9a-f-]{36})$/i
+  );
+
+
+/* Edit course */
+if (instructorCourseMatch && req.method === 'PATCH') {
+
+  const u = await requireRole(
+    req,
+    res,
+    ['instructor', 'admin']
+  );
+
+  if (!u) return;
+
+  try {
+
+    const courseId = instructorCourseMatch[1];
+
+    if (!(await ownsCourse(u, courseId))) {
+      return json(res, 403, {
+        message: 'You do not manage this course.'
+      });
+    }
+
+    const current = await db.query(
+      'SELECT * FROM courses WHERE id=$1',
+      [courseId]
+    );
+
+    if (!current.rowCount) {
+      return json(res, 404, {
+        message: 'Course not found.'
+      });
+    }
+
+    const x = await readJson(req);
+
+    const title =
+      String(
+        x.title ?? current.rows[0].title
+      ).trim();
+
+    const category =
+      String(
+        x.category ?? current.rows[0].category ?? ''
+      ).trim();
+
+    const educationLevel =
+      String(
+        x.educationLevel ??
+        current.rows[0].education_level
+      ).trim();
+
+    let priceCents =
+      Number(current.rows[0].price_cents || 0);
+
+    if (x.price !== undefined) {
+      priceCents =
+        Math.max(
+          0,
+          Math.round(Number(x.price || 0) * 100)
+        );
+    }
+
+    if (title.length < 4) {
+      return json(res, 400, {
+        message:
+          'Course title must contain at least 4 characters.'
+      });
+    }
+
+    await db.query(
+      `UPDATE courses
+       SET title=$2,
+           category=$3,
+           education_level=$4,
+           price_cents=$5,
+           updated_at=now()
+       WHERE id=$1`,
+      [
+        courseId,
+        title,
+        category,
+        educationLevel,
+        priceCents
+      ]
+    );
+
+    await audit(
+      u,
+      'course.updated',
+      'course',
+      courseId,
+      {
+        title,
+        category,
+        educationLevel,
+        priceCents
+      }
+    );
+
+    return json(res, 200, {
+      ok: true,
+      id: courseId
+    });
+
+  } catch (e) {
+    return dbFail(res, e);
+  }
+}
+
+
+/* Delete / safely archive course */
+if (instructorCourseMatch && req.method === 'DELETE') {
+
+  const u = await requireRole(
+    req,
+    res,
+    ['instructor', 'admin']
+  );
+
+  if (!u) return;
+
+  try {
+
+    const courseId = instructorCourseMatch[1];
+
+    if (!(await ownsCourse(u, courseId))) {
+      return json(res, 403, {
+        message: 'You do not manage this course.'
+      });
+    }
+
+    const course = await db.query(
+      'SELECT * FROM courses WHERE id=$1',
+      [courseId]
+    );
+
+    if (!course.rowCount) {
+      return json(res, 404, {
+        message: 'Course not found.'
+      });
+    }
+
+    const history = await db.query(
+      `SELECT
+        (SELECT count(*)
+         FROM enrolments
+         WHERE course_id=$1)::int AS enrolments,
+
+        (SELECT count(*)
+         FROM order_items
+         WHERE course_id=$1)::int AS orders`,
+      [courseId]
+    );
+
+    const hasHistory =
+      Number(history.rows[0].enrolments) > 0 ||
+      Number(history.rows[0].orders) > 0;
+
+    if (hasHistory) {
+
+      await db.query(
+        `UPDATE courses
+         SET status='archived',
+             updated_at=now()
+         WHERE id=$1`,
+        [courseId]
+      );
+
+      await audit(
+        u,
+        'course.archived',
+        'course',
+        courseId,
+        {}
+      );
+
+      return json(res, 200, {
+        ok: true,
+        archived: true,
+        message:
+          'This course has student or transaction history, so it was archived instead of permanently deleted.'
+      });
+    }
+
+    await db.query(
+      'DELETE FROM courses WHERE id=$1',
+      [courseId]
+    );
+
+    await audit(
+      u,
+      'course.deleted',
+      'course',
+      courseId,
+      {}
+    );
+
+    return json(res, 200, {
+      ok: true,
+      deleted: true,
+      message:
+        'Course permanently deleted.'
+    });
+
+  } catch (e) {
+    return dbFail(res, e);
+  }
+}
   if(url.pathname==='/api/enrolments'&&req.method==='GET'){
     const u=await requireRole(req,res,['student']);if(!u)return;try{const r=await db.query(`SELECT e.*,c.title,c.slug,c.education_level,c.category FROM enrolments e JOIN courses c ON c.id=e.course_id WHERE e.student_id=$1 ORDER BY e.enrolled_at DESC`,[u.id]);return json(res,200,{enrolments:r.rows})}catch(e){return dbFail(res,e)}
   }

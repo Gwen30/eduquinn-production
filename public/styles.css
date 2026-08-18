@@ -2030,3 +2030,129 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     line-height: 1.35 !important;
   }
 }
+/* Course curriculum */
+
+.curriculum-item {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+
+  padding: 18px;
+  margin-bottom: 12px;
+
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.curriculum-order {
+  width: 42px;
+  height: 42px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 10px;
+  background: #f7e9ed;
+  color: var(--burgundy);
+
+  font-weight: 700;
+}
+
+.curriculum-details {
+  min-width: 0;
+}
+
+.curriculum-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.curriculum-title-row h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.curriculum-type {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--slate);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.curriculum-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  margin-top: 9px;
+}
+
+.curriculum-meta-item {
+  font-size: 13px;
+  color: var(--slate);
+}
+
+.curriculum-access {
+  padding: 5px 9px;
+  border-radius: 999px;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.curriculum-access.preview {
+  background: #f5ead2;
+  color: #7a5713;
+}
+
+.curriculum-access.protected {
+  background: #f1e7ea;
+  color: var(--burgundy);
+}
+
+.curriculum-empty {
+  padding: 25px;
+  text-align: center;
+  color: var(--slate);
+}
+
+.curriculum-empty h3 {
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+@media (max-width: 600px) {
+
+  .curriculum-item {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .curriculum-order {
+    width: 34px;
+    height: 34px;
+  }
+
+  .curriculum-title-row {
+    align-items: flex-start;
+  }
+
+  .curriculum-title-row h3 {
+    font-size: 16px;
+  }
+
+  .curriculum-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+  }
+}

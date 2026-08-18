@@ -1332,3 +1332,166 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     font-size: 18px;
   }
 }
+
+/* Final Add Lesson responsive correction */
+
+#lessonForm {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+}
+
+#lessonForm .lesson-type-fields,
+#quizLessonFields,
+#assignmentLessonFields,
+#resourceLessonFields,
+#videoLessonFields,
+#articleLessonFields {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+/* Fix checkbox + wording alignment */
+#lessonForm label.check {
+  display: grid !important;
+  grid-template-columns: 22px minmax(0, 1fr) !important;
+  align-items: center !important;
+  justify-content: stretch !important;
+  column-gap: 10px !important;
+
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+
+  margin: 4px 0 !important;
+  padding: 0 !important;
+
+  white-space: normal !important;
+  overflow: visible !important;
+}
+
+#lessonForm label.check input[type="checkbox"] {
+  grid-column: 1 !important;
+
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  max-width: 20px !important;
+
+  padding: 0 !important;
+  margin: 0 !important;
+
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+}
+
+#lessonForm label.check span {
+  grid-column: 2 !important;
+  display: block !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  white-space: normal !important;
+  overflow-wrap: break-word !important;
+  word-break: normal !important;
+}
+
+/* Also covers checkbox labels that currently contain raw text */
+#lessonForm label.check {
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+}
+
+/* Normal control sizing */
+#lessonForm input:not([type="checkbox"]),
+#lessonForm select,
+#lessonForm textarea {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#lessonForm input:not([type="checkbox"]),
+#lessonForm select {
+  min-height: 46px !important;
+}
+
+#lessonForm textarea {
+  min-height: 110px;
+}
+
+/* Quiz button */
+#addQuizQuestion {
+  max-width: 100% !important;
+  white-space: normal !important;
+}
+
+/* Desktop */
+@media (min-width: 901px) {
+  .media-upload {
+    grid-template-columns:
+      minmax(500px, 1fr)
+      minmax(440px, 520px) !important;
+  }
+
+  .media-upload .studio-panel {
+    overflow: visible !important;
+  }
+}
+
+/* Tablet + mobile */
+@media (max-width: 900px) {
+
+  .media-upload {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .media-upload .studio-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  #lessonForm label.check {
+    grid-template-columns: 22px minmax(0, 1fr) !important;
+  }
+}
+
+/* Phones */
+@media (max-width: 600px) {
+
+  .media-page {
+    width: 100% !important;
+    padding: 12px !important;
+    overflow-x: hidden !important;
+  }
+
+  .media-upload {
+    width: 100% !important;
+    gap: 16px !important;
+  }
+
+  .media-upload .studio-panel {
+    padding: 18px !important;
+  }
+
+  #lessonForm {
+    gap: 16px !important;
+  }
+
+  #lessonForm label.check {
+    width: 100% !important;
+    font-size: 14px !important;
+  }
+
+  #addQuizQuestion,
+  #lessonForm > button[type="submit"] {
+    width: 100% !important;
+    min-height: 46px !important;
+  }
+}

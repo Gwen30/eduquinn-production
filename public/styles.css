@@ -1947,3 +1947,86 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     width: 100% !important;
   }
 }
+
+/* Final lesson option row correction */
+
+#lessonForm .lesson-option-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+
+  gap: 10px !important;
+
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+
+  margin: 0 !important;
+  padding: 6px 0 !important;
+
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+
+  white-space: normal !important;
+}
+
+#lessonForm .lesson-option-row input[type="checkbox"] {
+  flex: 0 0 18px !important;
+
+  width: 18px !important;
+  height: 18px !important;
+
+  min-width: 18px !important;
+  min-height: 18px !important;
+  max-width: 18px !important;
+  max-height: 18px !important;
+
+  margin: 1px 0 0 0 !important;
+  padding: 0 !important;
+
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+}
+
+#lessonForm .lesson-option-row span {
+  flex: 1 1 auto !important;
+
+  display: block !important;
+
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+
+  line-height: 1.4 !important;
+}
+
+@media (max-width: 600px) {
+
+  #lessonForm .lesson-option-row {
+    gap: 9px !important;
+    padding: 5px 0 !important;
+
+    font-size: 14px !important;
+    line-height: 1.35 !important;
+  }
+
+  #lessonForm .lesson-option-row input[type="checkbox"] {
+    flex-basis: 18px !important;
+
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  #lessonForm .lesson-option-row span {
+    font-size: 14px !important;
+    line-height: 1.35 !important;
+  }
+}

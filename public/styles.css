@@ -1529,3 +1529,363 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     min-width: 0 !important;
   }
 }
+/* =========================================================
+   MEDIA & LESSONS — FINAL RESPONSIVE LAYOUT
+   ========================================================= */
+
+.studio-main {
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+}
+
+.studio-page.media-page {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.media-toolbar {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.media-toolbar label {
+  min-width: 260px;
+  flex: 1;
+}
+
+.media-toolbar select {
+  width: 100%;
+}
+
+
+/* Main desktop layout */
+
+.media-upload {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+
+  display: grid !important;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(340px, 420px) !important;
+
+  gap: 24px !important;
+  align-items: start !important;
+}
+
+
+/* Left upload card */
+
+.media-drop {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+
+  padding: 32px !important;
+}
+
+
+/* Right lesson card */
+
+.media-upload > .studio-panel {
+  width: 100% !important;
+  max-width: 420px !important;
+  min-width: 0 !important;
+
+  padding: 26px !important;
+  overflow: visible !important;
+}
+
+
+/* Form */
+
+#lessonForm {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+
+  display: grid !important;
+  gap: 16px !important;
+}
+
+#lessonForm label:not(.lesson-check) {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+#lessonForm input:not([type="checkbox"]),
+#lessonForm select,
+#lessonForm textarea {
+  display: block;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  box-sizing: border-box !important;
+
+  font-size: 15px !important;
+}
+
+#lessonForm input:not([type="checkbox"]),
+#lessonForm select {
+  height: 48px !important;
+  min-height: 48px !important;
+  padding: 10px 13px !important;
+}
+
+#lessonForm textarea {
+  padding: 12px 13px !important;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+
+/* Dynamic lesson sections */
+
+.lesson-type-fields,
+#videoLessonFields,
+#articleLessonFields,
+#quizLessonFields,
+#assignmentLessonFields,
+#resourceLessonFields {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.lesson-type-fields[hidden] {
+  display: none !important;
+}
+
+
+/* Checkboxes */
+
+#lessonForm .lesson-check {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  display: grid !important;
+  grid-template-columns: 20px minmax(0, 1fr) !important;
+  column-gap: 10px !important;
+  align-items: center !important;
+
+  padding: 2px 0 !important;
+  margin: 0 !important;
+
+  white-space: normal !important;
+}
+
+#lessonForm .lesson-check input[type="checkbox"] {
+  grid-column: 1 !important;
+
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+
+  width: 18px !important;
+  height: 18px !important;
+
+  min-width: 18px !important;
+  min-height: 18px !important;
+  max-width: 18px !important;
+  max-height: 18px !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#lessonForm .lesson-check span {
+  grid-column: 2 !important;
+
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+
+  white-space: normal !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
+
+
+/* Quiz */
+
+.quiz-settings-grid {
+  width: 100%;
+  min-width: 0;
+
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 14px !important;
+}
+
+.quiz-builder-head {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 10px !important;
+
+  width: 100%;
+  min-width: 0;
+}
+
+.quiz-builder-head h3 {
+  margin: 0;
+}
+
+#addQuizQuestion {
+  max-width: 100% !important;
+  white-space: normal !important;
+}
+
+.quiz-question-card {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+
+  padding: 16px !important;
+}
+
+
+/* Course asset/curriculum cards */
+
+.asset-list,
+.asset-row {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.asset-row > div {
+  min-width: 0 !important;
+}
+
+.asset-row b,
+.asset-row small {
+  overflow-wrap: anywhere;
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 1100px) {
+
+  .media-upload {
+    grid-template-columns:
+      minmax(0, 1fr)
+      minmax(320px, 360px) !important;
+
+    gap: 18px !important;
+  }
+
+  .media-upload > .studio-panel {
+    max-width: 360px !important;
+    padding: 22px !important;
+  }
+}
+
+
+/* =========================================================
+   MOBILE / NARROW TABLET
+   ========================================================= */
+
+@media (max-width: 850px) {
+
+  .media-upload {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 18px !important;
+  }
+
+  .media-drop,
+  .media-upload > .studio-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .media-toolbar {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .media-toolbar label {
+    min-width: 0 !important;
+  }
+}
+
+
+/* =========================================================
+   PHONE
+   ========================================================= */
+
+@media (max-width: 600px) {
+
+  .studio-page.media-page {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .media-drop,
+  .media-upload > .studio-panel {
+    padding: 18px !important;
+    border-radius: 12px !important;
+  }
+
+  .media-upload > .studio-panel h2 {
+    font-size: 24px !important;
+    line-height: 1.2 !important;
+  }
+
+  #lessonForm {
+    gap: 15px !important;
+  }
+
+  #lessonForm label:not(.lesson-check) {
+    font-size: 14px !important;
+  }
+
+  #lessonForm input:not([type="checkbox"]),
+  #lessonForm select,
+  #lessonForm textarea {
+    font-size: 16px !important;
+  }
+
+  #lessonForm .lesson-check {
+    grid-template-columns: 18px minmax(0, 1fr) !important;
+    column-gap: 9px !important;
+  }
+
+  #lessonForm .lesson-check span {
+    font-size: 14px !important;
+  }
+
+  #addQuizQuestion,
+  #lessonForm > button[type="submit"] {
+    width: 100% !important;
+    max-width: 100% !important;
+
+    min-height: 46px !important;
+
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+
+  .quiz-question-card {
+    padding: 13px !important;
+  }
+}

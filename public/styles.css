@@ -1134,3 +1134,129 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     min-height: 48px;
   }
 }
+
+/* Final Media & Lessons sizing correction */
+
+.media-page,
+.media-upload,
+.media-drop,
+.media-upload .studio-panel,
+.form-panel,
+.lesson-type-fields,
+.quiz-question-card {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.media-upload .studio-panel {
+  overflow: hidden;
+}
+
+.form-panel input,
+.form-panel select,
+.form-panel textarea {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  font-size: 15px !important;
+}
+
+.form-panel input,
+.form-panel select {
+  min-height: 46px !important;
+  height: auto !important;
+  padding: 10px 14px !important;
+}
+
+.form-panel textarea {
+  padding: 12px 14px !important;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.form-panel .check {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  gap: 10px !important;
+  white-space: normal !important;
+  overflow: visible !important;
+}
+
+.form-panel .check input[type="checkbox"] {
+  appearance: auto !important;
+  -webkit-appearance: checkbox !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 20px !important;
+  flex: 0 0 20px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.form-panel .check span,
+.form-panel .check {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 901px) {
+  .media-upload {
+    grid-template-columns: minmax(0, 1.25fr) minmax(420px, .75fr) !important;
+  }
+
+  .media-upload .studio-panel {
+    padding: 24px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .media-upload {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .media-drop,
+  .media-upload .studio-panel {
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .media-page {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .media-upload .studio-panel,
+  .media-drop {
+    padding: 16px !important;
+  }
+
+  .media-upload .studio-panel h2 {
+    font-size: 24px !important;
+  }
+
+  .form-panel label {
+    font-size: 14px !important;
+  }
+
+  .form-panel input,
+  .form-panel select,
+  .form-panel textarea {
+    font-size: 16px !important;
+  }
+
+  .quiz-settings-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  #lessonForm > .btn-primary {
+    width: 100% !important;
+    min-height: 46px !important;
+  }
+}

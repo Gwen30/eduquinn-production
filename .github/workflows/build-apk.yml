@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'android-app/**'
+      - 'EduQuinn-Android-Build-Ready/EduQuinn-Android/**'
       - '.github/workflows/build-apk.yml'
 
 jobs:
@@ -13,34 +13,40 @@ jobs:
 
     defaults:
       run:
-        working-directory: android-app
+        working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Set up Java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Install Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build debug APK
+      - name: Build APK
         run: gradle assembleDebug
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/EduQuinn.apk
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             app/build/outputs/apk/debug/EduQuinn.apk
 
-      - name: Upload APK
+      - name: Upload EduQuinn APK
         uses: actions/upload-artifact@v4
         with:
           name: EduQuinn-APK
-          path: android-app/app/build/outputs/apk/debug/EduQuinn.apk
+          path: EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/EduQuinn.apk

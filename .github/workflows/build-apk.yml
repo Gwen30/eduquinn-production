@@ -26,9 +26,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 12266719
 
       - name: Accept Android SDK licences
-        run: yes | sdkmanager --licenses || true
+        run: sdkmanager --licenses
 
       - name: Install Android API 36
         run: sdkmanager --install 'platforms;android-36'

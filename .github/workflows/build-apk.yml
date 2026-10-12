@@ -7,6 +7,9 @@ on:
       - 'EduQuinn-Android-Build-Ready/EduQuinn-Android/**'
       - '.github/workflows/build-apk.yml'
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
@@ -24,28 +27,31 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK licences
+        run: yes | sdkmanager --licenses || true
+
       - name: Install Android API 36
-        run: |
-          yes | sdkmanager --licenses
-          sdkmanager "platforms;android-36"
-          sdkmanager "build-tools;36.0.0"
+        run: sdkmanager --install 'platforms;android-36'
+
+      - name: Install Android Build Tools 36
+        run: sdkmanager --install 'build-tools;36.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build APK
+      - name: Build EduQuinn APK
         working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
-        run: gradle assembleDebug
+        run: gradle --no-daemon assembleDebug
 
-      - name: Rename APK
+      - name: Prepare APK
         run: |
-          cp EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/app-debug.apk \
-             EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/EduQuinn.apk
+          cp EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/app-debug.apk EduQuinn.apk
 
       - name: Upload EduQuinn APK
         uses: actions/upload-artifact@v4
         with:
           name: EduQuinn-APK
-          path: EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/EduQuinn.apk
+          path: EduQuinn.apk
+          if-no-files-found: error

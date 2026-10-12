@@ -11,10 +11,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,6 +26,7 @@ jobs:
 
       - name: Install Android API 36
         run: |
+          yes | sdkmanager --licenses
           sdkmanager "platforms;android-36"
           sdkmanager "build-tools;36.0.0"
 
@@ -39,12 +36,13 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build APK
+        working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
         run: gradle assembleDebug
 
       - name: Rename APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk \
-             app/build/outputs/apk/debug/EduQuinn.apk
+          cp EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/app-debug.apk \
+             EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/EduQuinn.apk
 
       - name: Upload EduQuinn APK
         uses: actions/upload-artifact@v4

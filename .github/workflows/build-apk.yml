@@ -26,17 +26,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: 12266719
 
-      - name: Accept Android SDK licences
-        run: sdkmanager --licenses
-
-      - name: Install Android API 36
-        run: sdkmanager --install 'platforms;android-36'
-
-      - name: Install Android Build Tools 36
-        run: sdkmanager --install 'build-tools;36.0.0'
+      - name: Install Android SDK packages
+        working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
+        run: |
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

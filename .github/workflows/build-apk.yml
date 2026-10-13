@@ -1,4 +1,4 @@
-name: Build EduQuinn APK
+name: Build EduQuinn Release
 
 on:
   workflow_dispatch:
@@ -24,32 +24,35 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          cmdline-tools-version: 'latest'
+          packages: ''   # skips the removed default 'tools' package
 
       - name: Install Android API 36 and Build Tools
         run: |
-          sdkmanager --install "platforms;android-36"
-          sdkmanager --install "build-tools;36.0.0"
+          sdkmanager --install 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.13'
 
-      - name: Build EduQuinn APK
+      - name: Decode signing keystore
         working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
-        run: gradle --no-daemon assembleDebug
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.jks
 
-      - name: Prepare APK
-        run: |
-          cp EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/apk/debug/app-debug.apk EduQuinn.apk
+      - name: Build signed release bundle (AAB)
+        working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
+        run: gradle --no-daemon bundleRelease
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Upload EduQuinn APK
+      - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
-          name: EduQuinn-APK
-          path: EduQuinn.apk
+          name: EduQuinn-AAB
+          path: EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error

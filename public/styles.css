@@ -2156,3 +2156,631 @@ html,body{max-width:100%;overflow-x:hidden;font-family:Inter,Arial,sans-serif}
     gap: 7px;
   }
 }
+
+
+
+
+/* =========================================================
+   EDUQUINN — COMPLETE MOBILE RESPONSIVE FIX
+   Safe areas | Status bar | Notches | Small phones | Tablets
+   Append this block to the END of public/styles.css
+   ========================================================= */
+
+/* 1. Global viewport and safe-area foundation */
+:root {
+  --eq-safe-top: env(safe-area-inset-top, 0px);
+  --eq-safe-right: env(safe-area-inset-right, 0px);
+  --eq-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --eq-safe-left: env(safe-area-inset-left, 0px);
+
+  --eq-mobile-gutter: clamp(12px, 4vw, 24px);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: 100px;
+}
+
+body {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: break-word;
+}
+
+img,
+video,
+iframe,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea,
+button {
+  max-width: 100%;
+  font-family: inherit;
+}
+
+main,
+section,
+article,
+aside,
+nav,
+form,
+footer,
+header,
+.container,
+.page-content,
+#pageContent {
+  min-width: 0;
+}
+
+/* 2. Main site header */
+.site-header {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  z-index: 100;
+}
+
+/* 3. Mobile and narrow-tablet layout */
+@media screen and (max-width: 900px) {
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-copy,
+  .hero-visual,
+  .course-content,
+  .market-layout > *,
+  .business > * {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .market-layout,
+  .checkout-layout,
+  .player-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .commerce-grid,
+  .learning-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .media-upload {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .course-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 4. Phone screens */
+@media screen and (max-width: 600px) {
+
+  html {
+    scroll-padding-top: 90px;
+  }
+
+  body {
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  /* Header: fit the available width */
+  .site-header {
+    position: sticky;
+    top: 0;
+    left: auto;
+    right: auto;
+    height: auto;
+    min-height: 64px;
+    padding: 8px var(--eq-mobile-gutter);
+    gap: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--cream, #fffffa);
+  }
+
+  .brand {
+    flex: 1 1 120px;
+    min-width: 0;
+    gap: 7px;
+  }
+
+  .brand-mark {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .brand strong {
+    font-size: clamp(16px, 4.8vw, 20px);
+    line-height: 1.15;
+  }
+
+  .brand small {
+    font-size: 9px;
+    line-height: 1.25;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex: 0 1 auto;
+    gap: 4px;
+    min-width: 0;
+    margin-left: auto;
+  }
+
+  .header-search {
+    display: none !important;
+  }
+
+  .header-actions > .btn {
+    display: none !important;
+  }
+
+  .wishlist-button,
+  .cart-button,
+  .mobile-menu {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 38px;
+    width: 38px;
+    min-width: 38px;
+    height: 40px;
+    min-height: 40px;
+    padding: 4px;
+    margin: 0;
+  }
+
+  .wishlist-button,
+  .cart-button {
+    font-size: 21px;
+  }
+
+  .wishlist-button b,
+  .cart-button b {
+    top: 0;
+    right: 0;
+  }
+
+  .mobile-menu {
+    order: 3;
+    font-size: 23px;
+  }
+
+  /* Mobile navigation dropdown */
+  .site-header nav.open {
+    display: flex !important;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 75dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 8px 16px 16px;
+    background: var(--cream, #fffffa);
+    border-bottom: 1px solid var(--line, #e8ddd5);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.10);
+    z-index: 110;
+  }
+
+  .site-header nav.open > a {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 13px 4px;
+    line-height: 1.4;
+    overflow-wrap: break-word;
+    border-bottom: 1px solid var(--line, #e8ddd5);
+  }
+
+  /* Hero section */
+  .hero {
+    width: 100%;
+    min-height: 0;
+    padding: 28px var(--eq-mobile-gutter);
+    gap: 22px;
+  }
+
+  .hero h1 {
+    font-size: clamp(30px, 8vw, 40px);
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+  }
+
+  .hero-copy > p:not(.eyebrow) {
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  .hero-search {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .hero-search input {
+    flex: 1 1 auto;
+    width: 0;
+    min-width: 0;
+    padding: 13px 10px;
+    font-size: 16px;
+  }
+
+  .hero-search button {
+    flex: 0 0 78px;
+    width: 78px;
+    padding: 10px 6px;
+  }
+
+  .hero-visual {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .portrait-card {
+    width: 100%;
+    min-width: 0;
+    height: 240px;
+  }
+
+  .student-illustration {
+    font-size: clamp(75px, 22vw, 100px);
+  }
+
+  .floating-note {
+    left: 10px;
+    bottom: 12px;
+    max-width: calc(100% - 20px);
+  }
+
+  .stats-card {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    min-width: 0;
+    padding: 12px;
+  }
+
+  /* Sections and headings */
+  .section {
+    width: 100%;
+    padding: 28px var(--eq-mobile-gutter);
+  }
+
+  .section-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .section-heading h2,
+  .business h2 {
+    font-size: clamp(23px, 6.5vw, 30px);
+    line-height: 1.2;
+  }
+
+  .category-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .category {
+    min-width: 0;
+    padding: 16px 6px;
+    overflow-wrap: anywhere;
+  }
+
+  /* Course cards */
+  .course-grid,
+  .compact-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px;
+  }
+
+  .course-card,
+  .compact-course {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .course-image {
+    max-width: 100%;
+  }
+
+  .course-body h3 {
+    min-height: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .price-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Business and benefits */
+  .business {
+    width: auto;
+    margin: 18px var(--eq-mobile-gutter) 35px;
+    padding: 24px 18px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .business-art {
+    font-size: clamp(50px, 15vw, 70px);
+  }
+
+  .benefits {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* Forms */
+  .auth-body {
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 82px 12px 24px;
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: 480px;
+    min-width: 0;
+    padding: 22px 16px;
+  }
+
+  .auth-card h1 {
+    font-size: clamp(26px, 7vw, 32px);
+    line-height: 1.2;
+  }
+
+  .auth-card input,
+  .auth-card select,
+  .form-grid input,
+  .form-grid select,
+  .form-grid textarea,
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* Checkout and learning pages */
+  .commerce-page {
+    padding: 24px var(--eq-mobile-gutter) 40px;
+  }
+
+  .page-title h1,
+  .lesson-heading h1 {
+    font-size: clamp(25px, 7vw, 34px);
+    line-height: 1.2;
+  }
+
+  .panel,
+  .commerce-card,
+  .learning-card {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 16px;
+  }
+
+  .commerce-card,
+  .learning-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .checkout-layout,
+  .player-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 16px;
+  }
+
+  .player-header {
+    height: auto;
+    min-height: 60px;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .player-course-title {
+    flex: 1 1 150px;
+    min-width: 0;
+    padding-left: 10px;
+  }
+
+  .video-placeholder {
+    width: 100%;
+    height: auto;
+    min-height: 200px;
+    max-height: 65vw;
+  }
+
+  .lesson-heading {
+    padding: 18px 14px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .success-card,
+  .empty-state {
+    padding: 28px 16px;
+  }
+
+  /* Tables should scroll inside their own container */
+  .purchase-table {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Instructor Studio */
+  .studio-page,
+  .media-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  .media-upload {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 16px !important;
+  }
+
+  .media-drop,
+  .media-upload > .studio-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    padding: 16px !important;
+  }
+
+  /* Buttons must be comfortable to tap */
+  button,
+  .btn,
+  input[type="submit"] {
+    min-height: 42px;
+  }
+
+  /* Footer */
+  body > footer,
+  main + footer {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 24px 16px;
+  }
+
+  footer p {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Very narrow phones */
+@media screen and (max-width: 360px) {
+
+  :root {
+    --eq-mobile-gutter: 10px;
+  }
+
+  .site-header {
+    padding-left: 8px;
+    padding-right: 8px;
+    gap: 4px;
+  }
+
+  .brand {
+    gap: 5px;
+  }
+
+  .brand-mark {
+    flex-basis: 30px;
+    width: 30px;
+    height: 30px;
+  }
+
+  .brand strong {
+    font-size: 16px;
+  }
+
+  .header-actions {
+    gap: 2px;
+  }
+
+  .wishlist-button,
+  .cart-button,
+  .mobile-menu {
+    flex-basis: 34px;
+    width: 34px;
+    min-width: 34px;
+    height: 38px;
+    min-height: 38px;
+    padding: 2px;
+  }
+
+  .hero h1 {
+    font-size: 30px;
+  }
+
+  .stats-card {
+    padding: 9px;
+  }
+}
+
+/* =========================================================
+   IMPORTANT: Android status-bar / safe-area protection
+   ========================================================= */
+
+/*
+  The normal website header must not be pushed into the phone's
+  status-bar area. Do not apply status-bar padding to every page
+  element; that can create unwanted gaps.
+*/
+@supports (padding-top: env(safe-area-inset-top)) {
+
+  body {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
+
+/* Respect reduced-motion settings */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

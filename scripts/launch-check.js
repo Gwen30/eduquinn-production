@@ -7,7 +7,9 @@ function check(name,ok,detail=''){console.log(`${ok?'PASS':'FAIL'}  ${name}${det
   ok=check('Production mode',(process.env.NODE_ENV||'')==='production',process.env.NODE_ENV||'not set')&&ok;
   ok=check('HTTPS public URL',/^https:\/\//i.test(base),base||'not set')&&ok;
   ok=check('Database configured',!!process.env.DATABASE_URL)&&ok;
-  ok=check('Payment sandbox disabled',!/^(1|true|yes)$/i.test(process.env.PAYMENT_SANDBOX||''))&&ok;
+  const sandboxOff=!/^(1|true|yes)$/i.test(process.env.PAYMENT_SANDBOX||'');
+  ok=check('Payment sandbox disabled',sandboxOff)&&ok;
+  if(sandboxOff)ok=check('Paynow credentials configured',!!process.env.PAYNOW_INTEGRATION_ID&&!!process.env.PAYNOW_INTEGRATION_KEY,'required for real card/EcoCash/OneMoney payments once sandbox is off')&&ok;
   check('Transactional email configured',!!process.env.BREVO_API_KEY,process.env.BREVO_API_KEY?'configured':'recommended before public launch');
   const media=path.resolve(process.env.MEDIA_ROOT||'./storage/media');try{fs.mkdirSync(media,{recursive:true});ok=check('Media storage writable',true,media)&&ok}catch(e){ok=check('Media storage writable',false,e.message)&&ok}
   const ping=await db.ping();ok=check('PostgreSQL reachable',ping.ok,ping.error||'')&&ok;

@@ -26,7 +26,16 @@ const securityHeaders={
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'SAMEORIGIN','Referrer-Policy':'strict-origin-when-cross-origin',
   'Permissions-Policy':'camera=(self), microphone=(self), geolocation=()',
   'Cross-Origin-Opener-Policy':'same-origin','Cross-Origin-Resource-Policy':'same-origin',
-  'Content-Security-Policy':"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+  // script-src intentionally does NOT include 'unsafe-inline': the handful of static inline
+  // <script> blocks that ship in public/*.html (admin-access, login, signup, support,
+  // help-center, instructor-announcements, instructor-messages, instructor-payouts) are
+  // allowlisted by exact SHA-256 hash instead, so an injected <script>...</script> from a
+  // stored-XSS payload cannot execute even though those pages legitimately need inline code.
+  // style-src keeps 'unsafe-inline' because the app sets inline style="" attributes dynamically
+  // from JS all over the UI (progress bars, chart widths, etc.) — removing it would require a
+  // broader refactor than a hardening pass should take on, and inline *style* injection is a far
+  // lower-severity risk than inline *script* injection.
+  'Content-Security-Policy':"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-t/eTlbLWDWAIU9+yWPOS1zIpJdkMVj7iLcX0GPuqM7s=' 'sha256-6W3Pwz7K6uVZ0uWt1Y+aDG3lz9IEpQUar17l3gPXuFE=' 'sha256-ioK0Mc1gISEXTnzGL6U7NudlIaWQVaUhst2/AKlJoPw=' 'sha256-ClYVc3pR1yHqcwlTxk91rgG1LFLp7g1tVycyuPbEttI=' 'sha256-l2j6/x1YjrcrfMl4ZC8lDEa2NZBgZWQfwdvi3RcM0c8=' 'sha256-U+JvqpGjJ1B2M+1wvoRXoZQ4frPmC4RqTGTb7nSGLpk=' 'sha256-vrQMcf+56qfy3wfISz92LpbminwzHpWVStabmbVDE6M='; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
 };
 const rateBuckets=new Map();
 function clientIp(req){const direct=req.socket?.remoteAddress||'unknown';if(!TRUST_PROXY)return direct;const x=String(req.headers['x-forwarded-for']||'').split(',')[0].trim();return x||direct}
@@ -49,6 +58,10 @@ async function currentUser(req){const token=cookieMap(req).eq_session;if(!token)
 async function requireRole(req,res,roles){let user;try{user=await currentUser(req)}catch(e){return dbFail(res,e)}if(!user){json(res,401,{message:'Please sign in to continue.'});return null}if(!roles.includes(user.role)){json(res,403,{message:'You do not have permission to perform this action.'});return null}return user}
 function dbFail(res,e){json(res,e.code==='DB_NOT_CONFIGURED'?503:500,{message:e.code==='DB_NOT_CONFIGURED'?'The database is not configured. Set DATABASE_URL.':'A database operation failed.',code:e.code||'DB_ERROR'})}
 function validEmail(v){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v||''))}
+// Minimum account password policy: 10+ characters with at least one letter and one digit.
+// (Admin accounts are held to a stricter 12-character bar — see scripts/seed-admin.js and
+// scripts/production-check.js.)
+function weakPassword(p){p=String(p||'');return p.length<10||!/[a-zA-Z]/.test(p)||!/[0-9]/.test(p)}
 function slugify(v){return String(v||'course').toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,180)||'course'}
 async function audit(user,action,entityType=null,entityId=null,details={}){try{await db.query('INSERT INTO audit_log(id,actor_user_id,action,entity_type,entity_id,details) VALUES($1,$2,$3,$4,$5,$6::jsonb)',[uuid(),user?.id||null,action,entityType,entityId,JSON.stringify(details)])}catch{}}
 async function sendBrevoEmail({userId=null,email,name='',subject,text,template='general'}){
@@ -87,17 +100,83 @@ async function couponFor(code,userId,subtotal){
   return {code:c.code,discount:Math.max(0,discount),coupon:c};
 }
 async function markOrderPaid(orderId,reference=''){
-  const o=await db.query('SELECT * FROM orders WHERE id=$1',[orderId]); if(!o.rowCount)throw Object.assign(new Error('Order not found.'),{status:404});
-  if(o.rows[0].status==='paid')return o.rows[0];
-  await db.query("UPDATE orders SET status='paid',paid_at=now(),updated_at=now(),payment_reference=COALESCE(NULLIF($2,''),payment_reference) WHERE id=$1",[orderId,reference]);
-  await db.query("UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF($2,''),provider_reference),updated_at=now() WHERE order_id=$1 AND status<>'paid'",[orderId,reference]);
-  const items=await db.query(`SELECT oi.id order_item_id,oi.course_id,oi.unit_price_cents,c.instructor_id FROM order_items oi JOIN courses c ON c.id=oi.course_id WHERE oi.order_id=$1`,[orderId]);
-  const share=INSTRUCTOR_SHARE_PERCENT;
-  for(const i of items.rows){
-    await db.query(`INSERT INTO enrolments(id,student_id,course_id) VALUES($1,$2,$3) ON CONFLICT(student_id,course_id) DO NOTHING`,[uuid(),o.rows[0].student_id,i.course_id]);
-    if(i.instructor_id){const instructor=Math.floor(Number(i.unit_price_cents)*share/100),platform=Number(i.unit_price_cents)-instructor;await db.query(`INSERT INTO instructor_earnings(id,instructor_id,order_id,order_item_id,course_id,gross_cents,instructor_cents,platform_cents,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'available') ON CONFLICT(order_item_id) DO NOTHING`,[uuid(),i.instructor_id,orderId,i.order_item_id,i.course_id,i.unit_price_cents,instructor,platform])}
+  // Atomic: marking an order paid, settling the payment_transactions row, creating
+  // enrolments and recording instructor earnings must all succeed or all fail together.
+  return db.withTransaction(async(client)=>{
+    const o=await client.query('SELECT * FROM orders WHERE id=$1',[orderId]); if(!o.rowCount)throw Object.assign(new Error('Order not found.'),{status:404});
+    if(o.rows[0].status==='paid')return o.rows[0];
+    await client.query("UPDATE orders SET status='paid',paid_at=now(),updated_at=now(),payment_reference=COALESCE(NULLIF($2,''),payment_reference) WHERE id=$1",[orderId,reference]);
+    await client.query("UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF($2,''),provider_reference),updated_at=now() WHERE order_id=$1 AND status<>'paid'",[orderId,reference]);
+    const items=await client.query(`SELECT oi.id order_item_id,oi.course_id,oi.unit_price_cents,c.instructor_id FROM order_items oi JOIN courses c ON c.id=oi.course_id WHERE oi.order_id=$1`,[orderId]);
+    const share=INSTRUCTOR_SHARE_PERCENT;
+    for(const i of items.rows){
+      await client.query(`INSERT INTO enrolments(id,student_id,course_id) VALUES($1,$2,$3) ON CONFLICT(student_id,course_id) DO NOTHING`,[uuid(),o.rows[0].student_id,i.course_id]);
+      if(i.instructor_id){const instructor=Math.floor(Number(i.unit_price_cents)*share/100),platform=Number(i.unit_price_cents)-instructor;await client.query(`INSERT INTO instructor_earnings(id,instructor_id,order_id,order_item_id,course_id,gross_cents,instructor_cents,platform_cents,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'available') ON CONFLICT(order_item_id) DO NOTHING`,[uuid(),i.instructor_id,orderId,i.order_item_id,i.course_id,i.unit_price_cents,instructor,platform])}
+    }
+    return (await client.query('SELECT * FROM orders WHERE id=$1',[orderId])).rows[0];
+  });
+}
+
+// ---- Paynow (EcoCash / OneMoney / Visa & Mastercard via Paynow's hosted checkout) ----
+// Both the "card" and "paynow" checkout options route through the same Paynow merchant
+// integration: Paynow's own hosted payment page lets the customer choose EcoCash, OneMoney,
+// or a bank card, which is how card acceptance actually works for a Zimbabwe-based
+// marketplace (there is no separate card processor configured). Requires a free merchant
+// account at https://www.paynow.co.zw and PAYNOW_INTEGRATION_ID / PAYNOW_INTEGRATION_KEY.
+let _paynowLib=null;
+function loadPaynowLib(){
+  if(_paynowLib!==null)return _paynowLib||null;
+  try{_paynowLib=require('paynow')}catch{console.error('The "paynow" package is not installed. Run `npm install` to enable online payments.');_paynowLib=false}
+  return _paynowLib||null;
+}
+// A fresh Paynow() instance per call — never share/mutate one instance across requests. The
+// library's returnUrl/resultUrl are plain instance properties, and this app sets a different
+// returnUrl per order (it embeds the order id); a shared singleton would race under concurrent
+// checkouts (request A sets client.returnUrl, awaits the network call, request B overwrites
+// client.returnUrl in the meantime, A's send() then uses B's URL).
+function getPaynowClient(){
+  if(!process.env.PAYNOW_INTEGRATION_ID||!process.env.PAYNOW_INTEGRATION_KEY)return null;
+  const lib=loadPaynowLib();if(!lib)return null;
+  return new lib.Paynow(process.env.PAYNOW_INTEGRATION_ID,process.env.PAYNOW_INTEGRATION_KEY);
+}
+async function startPaynowPayment(order,lineItems){
+  const client=getPaynowClient();
+  if(!client)return {started:false,reason:'Online payments are not configured yet.'};
+  try{
+    client.resultUrl=process.env.PAYNOW_RESULT_URL||`${APP_BASE_URL}/api/payments/paynow/webhook`;
+    client.returnUrl=(process.env.PAYNOW_RETURN_URL||`${APP_BASE_URL}/order-success.html`)+`?db=1&orderId=${encodeURIComponent(order.id)}`;
+    const payment=client.createPayment(order.id);
+    for(const it of lineItems)payment.add(String(it.title||'Course').slice(0,100),Number(it.unit_price_cents||it.price_cents||0)/100);
+    const response=await client.send(payment);
+    if(response&&response.success){
+      try{await db.query(`UPDATE payment_transactions SET payload=jsonb_set(payload,'{pollUrl}',to_jsonb($2::text),true),updated_at=now() WHERE order_id=$1 AND status<>'paid'`,[order.id,response.pollUrl||''])}catch{}
+      return {started:true,redirectUrl:response.redirectUrl};
+    }
+    return {started:false,reason:(response&&response.error)||'Paynow did not accept the request.'};
+  }catch(e){
+    return {started:false,reason:e.message};
   }
-  return (await db.query('SELECT * FROM orders WHERE id=$1',[orderId])).rows[0];
+}
+function readRawBody(req,limit=100000){return new Promise((resolve,reject)=>{let body='';req.on('data',c=>{body+=c;if(body.length>limit){reject(Object.assign(new Error('Payload too large'),{status:413}));req.destroy()}});req.on('end',()=>resolve(body));req.on('error',reject)})}
+async function paynowWebhook(req,res){
+  // Server-to-server status push from Paynow. Always acknowledge with 200 so Paynow does not
+  // retry-storm us; only act on an update whose hash we have verified (parseStatusUpdate throws
+  // on a bad hash), and only once we can match it to a real pending order.
+  try{
+    const raw=await readRawBody(req,20000);
+    const client=getPaynowClient();
+    if(!client)return void (res.writeHead(200,securityHeaders),res.end('ignored'));
+    let update;
+    try{update=client.parseStatusUpdate(raw)}catch(e){await securityEvent(req,'paynow.webhook_invalid',null,{error:e.message});return void (res.writeHead(200,securityHeaders),res.end('ignored'))}
+    const orderId=String(update.reference||''),status=String(update.status||'').toLowerCase();
+    if(/^[0-9a-f-]{8}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{4}-[0-9a-f-]{12}$/i.test(orderId)&&['paid','awaiting delivery','delivered'].includes(status)){
+      try{await markOrderPaid(orderId,update.paynowreference||'')}catch(e){console.error('paynow webhook markOrderPaid failed',orderId,e.message)}
+    }
+    res.writeHead(200,securityHeaders);res.end('OK');
+  }catch(e){
+    console.error('paynow webhook error',e);
+    res.writeHead(200,securityHeaders);res.end('OK');
+  }
 }
 
 async function api(req,res,url){
@@ -127,7 +206,8 @@ async function api(req,res,url){
       const launch=(await db.query('SELECT * FROM platform_launch_state WHERE id=1')).rows[0];
       if(launch&&!launch.registrations_open)return json(res,403,{message:'New registrations are temporarily closed.'});
       if(role==='instructor'&&launch&&!launch.instructor_applications_open)return json(res,403,{message:'Instructor applications are temporarily closed.'});
-      if(name.length<2||!validEmail(email)||password.length<8||!['student','instructor'].includes(role))return json(res,400,{message:'Please provide valid registration details.'});
+      if(name.length<2||!validEmail(email)||!['student','instructor'].includes(role))return json(res,400,{message:'Please provide valid registration details.'});
+      if(weakPassword(password))return json(res,400,{message:'Password must be at least 10 characters and include both a letter and a number.'});
       if(role==='instructor'&&!expertise)return json(res,400,{message:'Please select your primary expertise.'});
       const exists=await db.query('SELECT 1 FROM users WHERE lower(email)=lower($1)',[email]);if(exists.rowCount)return json(res,409,{message:'An account with this email address already exists.'});
       const id=uuid(),hash=await bcrypt.hash(password,12);await db.query('INSERT INTO users(id,name,email,password_hash,role,status,expertise) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,name,email,hash,role,'active',role==='instructor'?expertise:null]);
@@ -226,6 +306,16 @@ if (instructorCourseMatch && req.method === 'PATCH') {
         current.rows[0].education_level
       ).trim();
 
+    const subtitle =
+      String(
+        x.subtitle ?? current.rows[0].subtitle ?? ''
+      ).trim().slice(0, 200);
+
+    const description =
+      String(
+        x.description ?? current.rows[0].description ?? ''
+      ).trim().slice(0, 8000);
+
     let priceCents =
       Number(current.rows[0].price_cents || 0);
 
@@ -250,6 +340,8 @@ if (instructorCourseMatch && req.method === 'PATCH') {
            category=$3,
            education_level=$4,
            price_cents=$5,
+           subtitle=$6,
+           description=$7,
            updated_at=now()
        WHERE id=$1`,
       [
@@ -257,7 +349,9 @@ if (instructorCourseMatch && req.method === 'PATCH') {
         title,
         category,
         educationLevel,
-        priceCents
+        priceCents,
+        subtitle,
+        description
       ]
     );
 
@@ -468,236 +562,218 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
       }
     }
 
-    await db.query('BEGIN');
-
-    await db.query(
-      `INSERT INTO lessons(
-        id,
-        course_id,
-        title,
-        lesson_type,
-        position,
-        asset_id,
-        body,
-        duration_seconds,
-        is_preview,
-        metadata
-      )
-      VALUES(
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb
-      )`,
-      [
-        lessonId,
-        courseId,
-        title,
-        lessonType,
-        Number(x.position || 0),
-        x.assetId || null,
-        body,
-        Math.max(0, Number(x.durationSeconds || 0)),
-        !!x.isPreview,
-        JSON.stringify(
-          lessonType === 'assignment'
-            ? x.assignment || {}
-            : {}
-        )
-      ]
-    );
-
-    if (lessonType === 'quiz') {
-      const quiz = x.quiz || {};
-      const questions =
-        Array.isArray(quiz.questions)
-          ? quiz.questions
-          : [];
-
-      if (!questions.length) {
-        await db.query('ROLLBACK');
-
-        return json(res, 400, {
-          message: 'Add at least one quiz question.'
-        });
-      }
-
-      const assessmentId = uuid();
-
-      const passMark = Math.max(
-        0,
-        Math.min(100, Number(quiz.passMark || 70))
-      );
-
-      const maxAttempts = Math.max(
-        1,
-        Math.min(100, Number(quiz.maxAttempts || 3))
-      );
-
-      const timeLimit = Math.max(
-        0,
-        Math.min(
-          1440,
-          Number(quiz.timeLimitMinutes || 0)
-        )
-      );
-
-      await db.query(
-        `INSERT INTO assessments(
+    // Everything below is one real, atomic transaction on a single dedicated
+    // client (db.withTransaction), instead of BEGIN/COMMIT/ROLLBACK issued
+    // through the pool — see db.js. A validation failure partway through
+    // throws (with .status/.message), which rolls back the whole insert.
+    await db.withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO lessons(
           id,
           course_id,
-          lesson_id,
           title,
-          pass_mark,
-          instructions,
-          max_attempts,
-          time_limit_minutes,
-          shuffle_questions,
-          show_answers
+          lesson_type,
+          position,
+          asset_id,
+          body,
+          duration_seconds,
+          is_preview,
+          metadata
         )
         VALUES(
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb
         )`,
         [
-          assessmentId,
-          courseId,
           lessonId,
+          courseId,
           title,
-          passMark,
-          String(quiz.instructions || ''),
-          maxAttempts,
-          timeLimit,
-          !!quiz.shuffleQuestions,
-          quiz.showAnswers !== false
+          lessonType,
+          Number(x.position || 0),
+          x.assetId || null,
+          body,
+          Math.max(0, Number(x.durationSeconds || 0)),
+          !!x.isPreview,
+          JSON.stringify(
+            lessonType === 'assignment'
+              ? x.assignment || {}
+              : {}
+          )
         ]
       );
 
-      for (
-        let i = 0;
-        i < questions.length;
-        i++
-      ) {
-        const q = questions[i] || {};
-
-        const prompt =
-          String(q.prompt || '').trim();
-
-        if (!prompt) {
-          await db.query('ROLLBACK');
-
-          return json(res, 400, {
-            message:
-              'Every quiz question requires question text.'
-          });
-        }
-
-        const type = [
-          'single',
-          'multiple',
-          'true_false',
-          'short_answer'
-        ].includes(q.type)
-          ? q.type
-          : 'single';
-
-        const rawOptions =
-          Array.isArray(q.options)
-            ? q.options
+      if (lessonType === 'quiz') {
+        const quiz = x.quiz || {};
+        const questions =
+          Array.isArray(quiz.questions)
+            ? quiz.questions
             : [];
 
-        const options = rawOptions
-          .map((option, index) => ({
-            text:
-              String(option.text || '').trim(),
+        if (!questions.length) {
+          throw Object.assign(new Error('Add at least one quiz question.'), { status: 400 });
+        }
 
-            position:
-              Number(option.position || index + 1)
-          }))
-          .filter(option => option.text);
+        const assessmentId = uuid();
 
-        const correctAnswers = rawOptions
-          .map((option, index) => ({
-            index,
-            text:
-              String(option.text || '').trim(),
+        const passMark = Math.max(
+          0,
+          Math.min(100, Number(quiz.passMark || 70))
+        );
 
-            correct:
-              !!option.correct
-          }))
-          .filter(
-            option =>
-              option.correct && option.text
+        const maxAttempts = Math.max(
+          1,
+          Math.min(100, Number(quiz.maxAttempts || 3))
+        );
+
+        const timeLimit = Math.max(
+          0,
+          Math.min(
+            1440,
+            Number(quiz.timeLimitMinutes || 0)
           )
-          .map(option => ({
-            index: option.index,
-            text: option.text
-          }));
+        );
 
-        if (
-          type !== 'short_answer' &&
-          options.length < 2
-        ) {
-          await db.query('ROLLBACK');
-
-          return json(res, 400, {
-            message:
-              'Each quiz question needs at least two answers.'
-          });
-        }
-
-        if (!correctAnswers.length) {
-          await db.query('ROLLBACK');
-
-          return json(res, 400, {
-            message:
-              'Each quiz question requires a correct answer.'
-          });
-        }
-
-        if (
-          ['single', 'true_false'].includes(type) &&
-          correctAnswers.length !== 1
-        ) {
-          await db.query('ROLLBACK');
-
-          return json(res, 400, {
-            message:
-              'Single-answer questions must have exactly one correct answer.'
-          });
-        }
-
-        await db.query(
-          `INSERT INTO assessment_questions(
+        await client.query(
+          `INSERT INTO assessments(
             id,
-            assessment_id,
-            prompt,
-            options,
-            correct_index,
-            position,
-            question_type,
-            correct_answers,
-            marks,
-            explanation
+            course_id,
+            lesson_id,
+            title,
+            pass_mark,
+            instructions,
+            max_attempts,
+            time_limit_minutes,
+            shuffle_questions,
+            show_answers
           )
           VALUES(
-            $1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
           )`,
           [
-            uuid(),
             assessmentId,
-            prompt,
-            JSON.stringify(options),
-            correctAnswers.length === 1
-              ? correctAnswers[0].index
-              : null,
-            Number(q.position || i + 1),
-            type,
-            JSON.stringify(correctAnswers),
-            Math.max(1, Number(q.marks || 1)),
-            String(q.explanation || '')
+            courseId,
+            lessonId,
+            title,
+            passMark,
+            String(quiz.instructions || ''),
+            maxAttempts,
+            timeLimit,
+            !!quiz.shuffleQuestions,
+            quiz.showAnswers !== false
           ]
         );
-      }
-    }
 
-    await db.query('COMMIT');
+        for (
+          let i = 0;
+          i < questions.length;
+          i++
+        ) {
+          const q = questions[i] || {};
+
+          const prompt =
+            String(q.prompt || '').trim();
+
+          if (!prompt) {
+            throw Object.assign(new Error('Every quiz question requires question text.'), { status: 400 });
+          }
+
+          const type = [
+            'single',
+            'multiple',
+            'true_false',
+            'short_answer'
+          ].includes(q.type)
+            ? q.type
+            : 'single';
+
+          const rawOptions =
+            Array.isArray(q.options)
+              ? q.options
+              : [];
+
+          const options = rawOptions
+            .map((option, index) => ({
+              text:
+                String(option.text || '').trim(),
+
+              position:
+                Number(option.position || index + 1)
+            }))
+            .filter(option => option.text);
+
+          const correctAnswers = rawOptions
+            .map((option, index) => ({
+              index,
+              text:
+                String(option.text || '').trim(),
+
+              correct:
+                !!option.correct
+            }))
+            .filter(
+              option =>
+                option.correct && option.text
+            )
+            .map(option => ({
+              index: option.index,
+              text: option.text
+            }));
+
+          if (
+            type !== 'short_answer' &&
+            options.length < 2
+          ) {
+            throw Object.assign(new Error('Each quiz question needs at least two answers.'), { status: 400 });
+          }
+
+          if (!correctAnswers.length) {
+            throw Object.assign(new Error(
+              type === 'short_answer'
+                ? 'Each short-answer question requires an accepted answer.'
+                : 'Each quiz question requires a correct answer.'
+            ), { status: 400 });
+          }
+
+          if (
+            ['single', 'true_false'].includes(type) &&
+            correctAnswers.length !== 1
+          ) {
+            throw Object.assign(new Error('Single-answer questions must have exactly one correct answer.'), { status: 400 });
+          }
+
+          await client.query(
+            `INSERT INTO assessment_questions(
+              id,
+              assessment_id,
+              prompt,
+              options,
+              correct_index,
+              position,
+              question_type,
+              correct_answers,
+              marks,
+              explanation
+            )
+            VALUES(
+              $1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9,$10
+            )`,
+            [
+              uuid(),
+              assessmentId,
+              prompt,
+              JSON.stringify(options),
+              correctAnswers.length === 1
+                ? correctAnswers[0].index
+                : null,
+              Number(q.position || i + 1),
+              type,
+              JSON.stringify(correctAnswers),
+              Math.max(1, Number(q.marks || 1)),
+              String(q.explanation || '')
+            ]
+          );
+        }
+      }
+    });
 
     await audit(
       u,
@@ -717,10 +793,6 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
     });
 
   } catch (e) {
-    try {
-      await db.query('ROLLBACK');
-    } catch {}
-
     return e.status
       ? json(res, e.status, {
           message: e.message
@@ -729,21 +801,108 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
   }
 }
   const learningMatch=url.pathname.match(/^\/api\/learning\/courses\/([0-9a-f-]{36})$/i);
-  if(learningMatch&&req.method==='GET'){const u=await requireRole(req,res,['student']);if(!u)return;try{const enr=await db.query('SELECT 1 FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,learningMatch[1]]);if(!enr.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});const r=await db.query(`SELECT l.id,l.title,l.lesson_type,l.position,l.duration_seconds,l.is_preview,l.asset_id,COALESCE(p.completed,false) completed,COALESCE(p.position_seconds,0) position_seconds FROM lessons l LEFT JOIN lesson_progress p ON p.lesson_id=l.id AND p.student_id=$1 WHERE l.course_id=$2 ORDER BY l.position,l.created_at`,[u.id,learningMatch[1]]);return json(res,200,{lessons:r.rows})}catch(e){return dbFail(res,e)}}
+  if(learningMatch&&req.method==='GET'){const u=await requireRole(req,res,['student']);if(!u)return;try{const enr=await db.query('SELECT 1 FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,learningMatch[1]]);if(!enr.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});const r=await db.query(`SELECT l.id,l.title,l.lesson_type,l.position,l.duration_seconds,l.is_preview,l.asset_id,l.body,COALESCE(p.completed,false) completed,COALESCE(p.position_seconds,0) position_seconds FROM lessons l LEFT JOIN lesson_progress p ON p.lesson_id=l.id AND p.student_id=$1 WHERE l.course_id=$2 ORDER BY l.position,l.created_at`,[u.id,learningMatch[1]]);return json(res,200,{lessons:r.rows})}catch(e){return dbFail(res,e)}}
   const progressMatch=url.pathname.match(/^\/api\/learning\/lessons\/([0-9a-f-]{36})\/progress$/i);
   if(progressMatch&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{const l=await db.query('SELECT course_id FROM lessons WHERE id=$1',[progressMatch[1]]);if(!l.rowCount)return json(res,404,{message:'Lesson not found.'});const enr=await db.query('SELECT id FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,l.rows[0].course_id]);if(!enr.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});const x=await readJson(req);await db.query(`INSERT INTO lesson_progress(student_id,lesson_id,completed,position_seconds,completed_at) VALUES($1,$2,$3,$4,CASE WHEN $3 THEN now() ELSE NULL END) ON CONFLICT(student_id,lesson_id) DO UPDATE SET completed=EXCLUDED.completed,position_seconds=EXCLUDED.position_seconds,updated_at=now(),completed_at=CASE WHEN EXCLUDED.completed THEN COALESCE(lesson_progress.completed_at,now()) ELSE NULL END`,[u.id,progressMatch[1],!!x.completed,Math.max(0,Number(x.positionSeconds||0))]);const pct=await db.query(`SELECT CASE WHEN count(*)=0 THEN 0 ELSE round(100.0*count(*) FILTER (WHERE p.completed)/count(*)) END pct FROM lessons l LEFT JOIN lesson_progress p ON p.lesson_id=l.id AND p.student_id=$1 WHERE l.course_id=$2`,[u.id,l.rows[0].course_id]);await db.query('UPDATE enrolments SET progress=$1,completed_at=CASE WHEN $1=100 THEN COALESCE(completed_at,now()) ELSE NULL END WHERE student_id=$2 AND course_id=$3',[Number(pct.rows[0].pct||0),u.id,l.rows[0].course_id]);return json(res,200,{progress:Number(pct.rows[0].pct||0)})}catch(e){return dbFail(res,e)}}
   const assessmentCourseMatch=url.pathname.match(/^\/api\/instructor\/courses\/([0-9a-f-]{36})\/assessments$/i);
-  if(assessmentCourseMatch&&req.method==='POST'){const u=await requireRole(req,res,['instructor','admin']);if(!u)return;try{const courseId=assessmentCourseMatch[1];if(!(await ownsCourse(u,courseId)))return json(res,403,{message:'You do not manage this course.'});const x=await readJson(req,150000),title=String(x.title||'').trim(),questions=Array.isArray(x.questions)?x.questions:[];if(title.length<2||!questions.length)return json(res,400,{message:'Assessment title and at least one question are required.'});const id=uuid();await db.query('BEGIN');await db.query('INSERT INTO assessments(id,course_id,title,pass_mark) VALUES($1,$2,$3,$4)',[id,courseId,title,Math.max(0,Math.min(100,Number(x.passMark||50)))]);for(let i=0;i<questions.length;i++){const q=questions[i]||{},options=Array.isArray(q.options)?q.options.slice(0,10):[];await db.query('INSERT INTO assessment_questions(id,assessment_id,prompt,options,correct_index,position) VALUES($1,$2,$3,$4::jsonb,$5,$6)',[uuid(),id,String(q.prompt||'Question '+(i+1)),JSON.stringify(options),Number.isInteger(q.correctIndex)?q.correctIndex:null,i])}await db.query('COMMIT');return json(res,201,{id})}catch(e){try{await db.query('ROLLBACK')}catch{}return dbFail(res,e)}}
+  if(assessmentCourseMatch&&req.method==='POST'){const u=await requireRole(req,res,['instructor','admin']);if(!u)return;try{const courseId=assessmentCourseMatch[1];if(!(await ownsCourse(u,courseId)))return json(res,403,{message:'You do not manage this course.'});const x=await readJson(req,150000),title=String(x.title||'').trim(),questions=Array.isArray(x.questions)?x.questions:[];if(title.length<2||!questions.length)return json(res,400,{message:'Assessment title and at least one question are required.'});const id=uuid();await db.withTransaction(async(client)=>{await client.query('INSERT INTO assessments(id,course_id,title,pass_mark) VALUES($1,$2,$3,$4)',[id,courseId,title,Math.max(0,Math.min(100,Number(x.passMark||50)))]);for(let i=0;i<questions.length;i++){const q=questions[i]||{},options=Array.isArray(q.options)?q.options.slice(0,10):[],correctIndex=Number.isInteger(q.correctIndex)?q.correctIndex:null,correctAnswers=correctIndex!==null&&options[correctIndex]?[{index:correctIndex,text:String(options[correctIndex].text||options[correctIndex]||'')}]:[];await client.query('INSERT INTO assessment_questions(id,assessment_id,prompt,options,correct_index,position,question_type,correct_answers) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb)',[uuid(),id,String(q.prompt||'Question '+(i+1)),JSON.stringify(options),correctIndex,i,'single',JSON.stringify(correctAnswers)])}});return json(res,201,{id})}catch(e){return e.status?json(res,e.status,{message:e.message}):dbFail(res,e)}}
   const learningAssessMatch=url.pathname.match(/^\/api\/learning\/courses\/([0-9a-f-]{36})\/assessments$/i);
-  if(learningAssessMatch&&req.method==='GET'){const u=await requireRole(req,res,['student']);if(!u)return;try{const e=await db.query('SELECT 1 FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,learningAssessMatch[1]]);if(!e.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});const a=await db.query('SELECT id,title,pass_mark FROM assessments WHERE course_id=$1 ORDER BY created_at',[learningAssessMatch[1]]);for(const item of a.rows){const q=await db.query('SELECT id,prompt,options,position FROM assessment_questions WHERE assessment_id=$1 ORDER BY position',[item.id]);item.questions=q.rows}return json(res,200,{assessments:a.rows})}catch(e){return dbFail(res,e)}}
+  if(learningAssessMatch&&req.method==='GET'){const u=await requireRole(req,res,['student']);if(!u)return;try{const e=await db.query('SELECT 1 FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,learningAssessMatch[1]]);if(!e.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});const a=await db.query('SELECT id,lesson_id,title,pass_mark,instructions,max_attempts,time_limit_minutes,shuffle_questions,show_answers FROM assessments WHERE course_id=$1 ORDER BY created_at',[learningAssessMatch[1]]);for(const item of a.rows){const q=await db.query('SELECT id,prompt,options,position,question_type,marks FROM assessment_questions WHERE assessment_id=$1 ORDER BY position',[item.id]);item.questions=q.rows;const att=await db.query('SELECT count(*)::int n FROM assessment_attempts WHERE assessment_id=$1 AND student_id=$2',[item.id,u.id]);item.attemptsUsed=Number(att.rows[0].n)}return json(res,200,{assessments:a.rows})}catch(e){return dbFail(res,e)}}
   const submitAssessMatch=url.pathname.match(/^\/api\/learning\/assessments\/([0-9a-f-]{36})\/submit$/i);
-  if(submitAssessMatch&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{const a=await db.query('SELECT * FROM assessments WHERE id=$1',[submitAssessMatch[1]]);if(!a.rowCount)return json(res,404,{message:'Assessment not found.'});const e=await db.query('SELECT 1 FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,a.rows[0].course_id]);if(!e.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});const x=await readJson(req),answers=Array.isArray(x.answers)?x.answers:[],q=await db.query('SELECT correct_index,position FROM assessment_questions WHERE assessment_id=$1 ORDER BY position',[submitAssessMatch[1]]);let correct=0,total=0;q.rows.forEach((v,i)=>{if(v.correct_index!==null){total++;if(Number(answers[i])===Number(v.correct_index))correct++}});const score=total?Math.round(correct*100/total):0,passed=score>=Number(a.rows[0].pass_mark);const id=uuid();await db.query('INSERT INTO assessment_attempts(id,assessment_id,student_id,answers,score,passed) VALUES($1,$2,$3,$4::jsonb,$5,$6)',[id,submitAssessMatch[1],u.id,JSON.stringify(answers),score,passed]);return json(res,201,{attemptId:id,score,passed,passMark:Number(a.rows[0].pass_mark)})}catch(e){return dbFail(res,e)}}
+  if(submitAssessMatch&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{const a=await db.query('SELECT * FROM assessments WHERE id=$1',[submitAssessMatch[1]]);if(!a.rowCount)return json(res,404,{message:'Assessment not found.'});const e=await db.query('SELECT 1 FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,a.rows[0].course_id]);if(!e.rowCount)return json(res,403,{message:'You are not enrolled in this course.'});
+    const maxAttempts=Number(a.rows[0].max_attempts||3);const used=await db.query('SELECT count(*)::int n FROM assessment_attempts WHERE assessment_id=$1 AND student_id=$2',[submitAssessMatch[1],u.id]);if(Number(used.rows[0].n)>=maxAttempts)return json(res,409,{message:`You have used all ${maxAttempts} attempt${maxAttempts===1?'':'s'} for this assessment.`});
+    const x=await readJson(req),answers=Array.isArray(x.answers)?x.answers:[],q=await db.query('SELECT correct_index,correct_answers,question_type,marks,position FROM assessment_questions WHERE assessment_id=$1 ORDER BY position',[submitAssessMatch[1]]);
+    let earned=0,possible=0;
+    const results=q.rows.map((v,i)=>{
+      const marks=Math.max(1,Number(v.marks||1));possible+=marks;
+      const given=answers[i];const type=v.question_type||'single';let ok=false;
+      if(type==='multiple'){
+        const correctIdx=(v.correct_answers||[]).map(opt=>Number(opt.index)).sort((p,n)=>p-n);
+        const givenIdx=Array.isArray(given)?[...new Set(given.map(Number))].filter(n=>Number.isInteger(n)).sort((p,n)=>p-n):[];
+        ok=correctIdx.length>0&&correctIdx.length===givenIdx.length&&correctIdx.every((val,idx)=>val===givenIdx[idx]);
+      }else if(type==='short_answer'){
+        const accepted=(v.correct_answers||[]).map(opt=>String(opt.text||'').trim().toLowerCase()).filter(Boolean);
+        ok=accepted.includes(String(given||'').trim().toLowerCase());
+      }else{
+        ok=v.correct_index!==null&&v.correct_index!==undefined&&Number(given)===Number(v.correct_index);
+      }
+      if(ok)earned+=marks;
+      return ok;
+    });
+    const score=possible?Math.round(earned*100/possible):0,passed=score>=Number(a.rows[0].pass_mark);const id=uuid();await db.query('INSERT INTO assessment_attempts(id,assessment_id,student_id,answers,score,passed) VALUES($1,$2,$3,$4::jsonb,$5,$6)',[id,submitAssessMatch[1],u.id,JSON.stringify(answers),score,passed]);
+    return json(res,201,{attemptId:id,score,passed,passMark:Number(a.rows[0].pass_mark),perQuestion:a.rows[0].show_answers!==false?results:undefined,attemptsUsed:Number(used.rows[0].n)+1,maxAttempts})
+  }catch(e){return dbFail(res,e)}}
   if(url.pathname==='/api/certificates/issue'&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{const x=await readJson(req),courseId=String(x.courseId||'');const e=await db.query('SELECT progress FROM enrolments WHERE student_id=$1 AND course_id=$2',[u.id,courseId]);if(!e.rowCount||Number(e.rows[0].progress)<100)return json(res,409,{message:'Complete all lessons before requesting a certificate.'});const existing=await db.query('SELECT * FROM certificates WHERE student_id=$1 AND course_id=$2',[u.id,courseId]);if(existing.rowCount)return json(res,200,{certificate:existing.rows[0]});const id=uuid(),code='EQ-CERT-'+new Date().getFullYear()+'-'+crypto.randomBytes(5).toString('hex').toUpperCase();const r=await db.query('INSERT INTO certificates(id,certificate_code,student_id,course_id) VALUES($1,$2,$3,$4) RETURNING *',[id,code,u.id,courseId]);return json(res,201,{certificate:r.rows[0]})}catch(e){return dbFail(res,e)}}
 
 
-  if(url.pathname==='/api/commerce/config'&&req.method==='GET')return json(res,200,{currency:'USD',instructorSharePercent:INSTRUCTOR_SHARE_PERCENT,paymentSandbox:PAYMENT_SANDBOX,methods:[{id:'card',label:'Visa / Mastercard',configured:!!process.env.CARD_PROVIDER&&process.env.CARD_PROVIDER!=='not_configured'},{id:'paynow',label:'EcoCash / Paynow',configured:!!process.env.PAYNOW_INTEGRATION_ID&&!!process.env.PAYNOW_INTEGRATION_KEY},{id:'bank_transfer',label:'Bank transfer',configured:true}]});
+  if(url.pathname==='/api/commerce/config'&&req.method==='GET'){const paynowReady=!!process.env.PAYNOW_INTEGRATION_ID&&!!process.env.PAYNOW_INTEGRATION_KEY;return json(res,200,{currency:'USD',instructorSharePercent:INSTRUCTOR_SHARE_PERCENT,paymentSandbox:PAYMENT_SANDBOX,methods:[{id:'card',label:'Visa / Mastercard (via Paynow)',configured:paynowReady},{id:'paynow',label:'EcoCash / OneMoney (via Paynow)',configured:paynowReady},{id:'bank_transfer',label:'Bank transfer',configured:true}]})}
   if(url.pathname==='/api/coupons/validate'&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{const x=await readJson(req),result=await couponFor(x.code,u.id,cents(x.subtotalCents));if(result.error)return json(res,400,{message:result.error});return json(res,200,{code:result.code,discountCents:result.discount})}catch(e){return dbFail(res,e)}}
-  if(url.pathname==='/api/orders'&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{const x=await readJson(req),ids=Array.isArray(x.courseIds)?[...new Set(x.courseIds.map(String).filter(v=>/^[0-9a-f-]{36}$/i.test(v)))]:[],method=String(x.paymentMethod||'');if(!ids.length)return json(res,400,{message:'Select at least one database-backed course.'});if(!['card','paynow','bank_transfer'].includes(method))return json(res,400,{message:'Select a supported payment method.'});const q=await db.query(`SELECT id,title,price_cents,currency FROM courses WHERE id=ANY($1::uuid[]) AND status='published'`,[ids]);if(q.rowCount!==ids.length)return json(res,400,{message:'One or more courses are unavailable.'});const subtotal=q.rows.reduce((a,c)=>a+Number(c.price_cents),0),cp=await couponFor(x.couponCode,u.id,subtotal);if(cp.error)return json(res,400,{message:cp.error});const discount=cp.discount||0,total=Math.max(0,subtotal-discount),id=uuid(),status=total===0?'paid':method==='bank_transfer'?'awaiting_payment':'pending_gateway';await db.query(`INSERT INTO orders(id,student_id,status,payment_method,currency,total_cents,subtotal_cents,discount_cents,coupon_code) VALUES($1,$2,$3,$4,'USD',$5,$6,$7,$8)`,[id,u.id,status,method,total,subtotal,discount,cp.code]);for(const c of q.rows)await db.query('INSERT INTO order_items(id,order_id,course_id,unit_price_cents) VALUES($1,$2,$3,$4)',[uuid(),id,c.id,c.price_cents]);if(cp.coupon)await db.query('INSERT INTO coupon_redemptions(coupon_id,user_id,order_id) VALUES($1,$2,$3)',[cp.coupon.id,u.id,id]);const txid=uuid(),provider=method==='bank_transfer'?'manual_bank':method;await db.query('INSERT INTO payment_transactions(id,order_id,provider,amount_cents,currency,status) VALUES($1,$2,$3,$4,\'USD\',$5)',[txid,id,provider,total,status==='paid'?'paid':'pending']);let order;if(total===0)order=await markOrderPaid(id,'FREE');else if(PAYMENT_SANDBOX&&method!=='bank_transfer')order=await markOrderPaid(id,'SANDBOX-'+Date.now());else order=(await db.query('SELECT * FROM orders WHERE id=$1',[id])).rows[0];await audit(u,'order.created','order',id,{paymentMethod:method,totalCents:total,coupon:cp.code||null});return json(res,201,{order,requiresGateway:order.status==='pending_gateway',bankInstructions:method==='bank_transfer'?(process.env.BANK_TRANSFER_INSTRUCTIONS||'Contact EduQuinn support for bank transfer details.'):null})}catch(e){return e.status?json(res,e.status,{message:e.message}):dbFail(res,e)}}
+  if(url.pathname==='/api/orders'&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{
+    const x=await readJson(req),ids=Array.isArray(x.courseIds)?[...new Set(x.courseIds.map(String).filter(v=>/^[0-9a-f-]{36}$/i.test(v)))]:[],method=String(x.paymentMethod||'');
+    if(!ids.length)return json(res,400,{message:'Select at least one database-backed course.'});
+    if(!['card','paynow','bank_transfer'].includes(method))return json(res,400,{message:'Select a supported payment method.'});
+    const q=await db.query(`SELECT id,title,price_cents,currency FROM courses WHERE id=ANY($1::uuid[]) AND status='published'`,[ids]);
+    if(q.rowCount!==ids.length)return json(res,400,{message:'One or more courses are unavailable.'});
+    const subtotal=q.rows.reduce((a,c)=>a+Number(c.price_cents),0),cp=await couponFor(x.couponCode,u.id,subtotal);
+    if(cp.error)return json(res,400,{message:cp.error});
+    const discount=cp.discount||0,total=Math.max(0,subtotal-discount),id=uuid(),status=total===0?'paid':method==='bank_transfer'?'awaiting_payment':'pending_gateway';
+    // Creating the order and its line items is one atomic transaction.
+    await db.withTransaction(async(client)=>{
+      await client.query(`INSERT INTO orders(id,student_id,status,payment_method,currency,total_cents,subtotal_cents,discount_cents,coupon_code) VALUES($1,$2,$3,$4,'USD',$5,$6,$7,$8)`,[id,u.id,status,method,total,subtotal,discount,cp.code]);
+      for(const c of q.rows)await client.query('INSERT INTO order_items(id,order_id,course_id,unit_price_cents) VALUES($1,$2,$3,$4)',[uuid(),id,c.id,c.price_cents]);
+      if(cp.coupon)await client.query('INSERT INTO coupon_redemptions(coupon_id,user_id,order_id) VALUES($1,$2,$3)',[cp.coupon.id,u.id,id]);
+      const txid=uuid(),provider=method==='bank_transfer'?'manual_bank':method;
+      await client.query('INSERT INTO payment_transactions(id,order_id,provider,amount_cents,currency,status) VALUES($1,$2,$3,$4,\'USD\',$5)',[txid,id,provider,total,status==='paid'?'paid':'pending']);
+    });
+    // Marking paid (free/coupon-covered orders, or sandbox testing) is its own atomic step.
+    let order;
+    if(total===0)order=await markOrderPaid(id,'FREE');
+    else if(PAYMENT_SANDBOX&&method!=='bank_transfer')order=await markOrderPaid(id,'SANDBOX-'+Date.now());
+    else order=(await db.query('SELECT * FROM orders WHERE id=$1',[id])).rows[0];
+    // For a real card/EcoCash/OneMoney order, start the Paynow transaction now so checkout is
+    // one step for the student. This is a plain HTTP call outside the DB transaction above, so
+    // Paynow being slow or unreachable never holds a database transaction open.
+    let paynowRedirectUrl=null,paynowError=null;
+    if(order.status==='pending_gateway'){
+      const result=await startPaynowPayment(order,q.rows);
+      if(result.started)paynowRedirectUrl=result.redirectUrl;else paynowError=result.reason;
+    }
+    await audit(u,'order.created','order',id,{paymentMethod:method,totalCents:total,coupon:cp.code||null});
+    return json(res,201,{order,requiresGateway:order.status==='pending_gateway',paynowRedirectUrl,paynowError,bankInstructions:method==='bank_transfer'?(process.env.BANK_TRANSFER_INSTRUCTIONS||'Contact EduQuinn support for bank transfer details.'):null})
+  }catch(e){return e.status?json(res,e.status,{message:e.message}):dbFail(res,e)}}
+  const retryPaynow=url.pathname.match(/^\/api\/orders\/([0-9a-f-]{36})\/pay\/paynow$/i);
+  if(retryPaynow&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{
+    const o=await db.query('SELECT * FROM orders WHERE id=$1 AND student_id=$2',[retryPaynow[1],u.id]);
+    if(!o.rowCount)return json(res,404,{message:'Order not found.'});
+    if(o.rows[0].status!=='pending_gateway')return json(res,409,{message:'This order is not awaiting online payment.'});
+    const items=await db.query('SELECT oi.unit_price_cents,c.title FROM order_items oi JOIN courses c ON c.id=oi.course_id WHERE oi.order_id=$1',[retryPaynow[1]]);
+    const result=await startPaynowPayment(o.rows[0],items.rows);
+    if(!result.started)return json(res,502,{message:'Online payment could not be started: '+result.reason+'. You can try again shortly, or choose bank transfer.'});
+    return json(res,200,{redirectUrl:result.redirectUrl})
+  }catch(e){return dbFail(res,e)}}
+  if(url.pathname==='/api/payments/paynow/webhook'&&req.method==='POST')return paynowWebhook(req,res);
+  const refreshOrder=url.pathname.match(/^\/api\/orders\/([0-9a-f-]{36})\/refresh-status$/i);
+  if(refreshOrder&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{
+    const o=await db.query('SELECT * FROM orders WHERE id=$1 AND student_id=$2',[refreshOrder[1],u.id]);
+    if(!o.rowCount)return json(res,404,{message:'Order not found.'});
+    // The webhook is the usual path to "paid", but it can lag behind the customer's browser
+    // returning from Paynow, so give the success page a way to reconcile immediately by
+    // polling Paynow directly using the pollUrl captured when the transaction was started.
+    if(o.rows[0].status==='pending_gateway'){
+      const tx=await db.query("SELECT payload->>'pollUrl' as poll_url,provider_reference FROM payment_transactions WHERE order_id=$1 ORDER BY created_at DESC LIMIT 1",[refreshOrder[1]]);
+      const pollUrl=tx.rows[0]?.poll_url;
+      const client=getPaynowClient();
+      if(pollUrl&&client){
+        try{
+          const polled=await client.pollTransaction(pollUrl);
+          const paidNow=typeof polled.paid==='function'?polled.paid():['paid','awaiting delivery','delivered'].includes(String(polled.status||'').toLowerCase());
+          if(paidNow)await markOrderPaid(refreshOrder[1],polled.paynowreference||polled.paynowReference||'');
+        }catch(e){console.error('paynow poll failed',refreshOrder[1],e.message)}
+      }
+    }
+    const current=await db.query('SELECT * FROM orders WHERE id=$1',[refreshOrder[1]]);
+    return json(res,200,{order:current.rows[0]})
+  }catch(e){return dbFail(res,e)}}
   if(url.pathname==='/api/orders/mine'&&req.method==='GET'){const u=await requireRole(req,res,['student']);if(!u)return;try{const r=await db.query(`SELECT o.*,COALESCE(json_agg(json_build_object('courseId',c.id,'title',c.title,'priceCents',oi.unit_price_cents)) FILTER (WHERE c.id IS NOT NULL),'[]') items FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id LEFT JOIN courses c ON c.id=oi.course_id WHERE o.student_id=$1 GROUP BY o.id ORDER BY o.created_at DESC`,[u.id]);return json(res,200,{orders:r.rows})}catch(e){return dbFail(res,e)}}
   const refundReq=url.pathname.match(/^\/api\/orders\/([0-9a-f-]{36})\/refund-request$/i);if(refundReq&&req.method==='POST'){const u=await requireRole(req,res,['student']);if(!u)return;try{const o=await db.query("SELECT * FROM orders WHERE id=$1 AND student_id=$2 AND status='paid'",[refundReq[1],u.id]);if(!o.rowCount)return json(res,404,{message:'A paid order eligible for refund was not found.'});const x=await readJson(req),id=uuid();await db.query('INSERT INTO refunds(id,order_id,requested_by,amount_cents,reason) VALUES($1,$2,$3,$4,$5)',[id,refundReq[1],u.id,o.rows[0].total_cents,String(x.reason||'').slice(0,2000)]);await db.query("UPDATE orders SET status='refund_requested',updated_at=now() WHERE id=$1",[refundReq[1]]);await audit(u,'refund.requested','order',refundReq[1],{});return json(res,201,{refundId:id,status:'requested'})}catch(e){return dbFail(res,e)}}
   if(url.pathname==='/api/instructor/earnings'&&req.method==='GET'){const u=await requireRole(req,res,['instructor','admin']);if(!u)return;try{const instructorId=u.role==='admin'&&url.searchParams.get('instructorId')?url.searchParams.get('instructorId'):u.id;const sum=await db.query(`SELECT COALESCE(sum(instructor_cents) FILTER(WHERE status='available'),0) available,COALESCE(sum(instructor_cents) FILTER(WHERE status='pending'),0) pending,COALESCE(sum(instructor_cents),0) lifetime FROM instructor_earnings WHERE instructor_id=$1`,[instructorId]);const rows=await db.query(`SELECT e.*,c.title course_title,o.created_at order_date FROM instructor_earnings e JOIN courses c ON c.id=e.course_id JOIN orders o ON o.id=e.order_id WHERE e.instructor_id=$1 ORDER BY e.created_at DESC LIMIT 100`,[instructorId]);const payouts=await db.query('SELECT * FROM instructor_payouts WHERE instructor_id=$1 ORDER BY created_at DESC LIMIT 50',[instructorId]);return json(res,200,{summary:sum.rows[0],earnings:rows.rows,payouts:payouts.rows,sharePercent:INSTRUCTOR_SHARE_PERCENT})}catch(e){return dbFail(res,e)}}
@@ -752,7 +911,9 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
   if(url.pathname==='/api/admin/refunds'&&req.method==='GET'){const u=await requireRole(req,res,['admin']);if(!u)return;try{const r=await db.query(`SELECT f.*,o.student_id,o.total_cents,u.name student_name,u.email student_email FROM refunds f JOIN orders o ON o.id=f.order_id LEFT JOIN users u ON u.id=o.student_id ORDER BY f.created_at DESC LIMIT 300`);return json(res,200,{refunds:r.rows})}catch(e){return dbFail(res,e)}}
   const markPaid=url.pathname.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/mark-paid$/i);if(markPaid&&req.method==='POST'){const u=await requireRole(req,res,['admin']);if(!u)return;try{const x=await readJson(req),order=await markOrderPaid(markPaid[1],String(x.reference||'MANUAL-'+Date.now()));await audit(u,'payment.confirmed','order',markPaid[1],{reference:x.reference||null});return json(res,200,{order})}catch(e){return e.status?json(res,e.status,{message:e.message}):dbFail(res,e)}}
   if(url.pathname==='/api/admin/payouts/approve'&&req.method==='POST'){const u=await requireRole(req,res,['admin']);if(!u)return;try{const x=await readJson(req),instructorId=String(x.instructorId||'');if(!/^[0-9a-f-]{36}$/i.test(instructorId))return json(res,400,{message:'A valid instructor is required.'});const available=await db.query("SELECT COALESCE(sum(instructor_cents),0) total,min(created_at)::date period_start,max(created_at)::date period_end FROM instructor_earnings WHERE instructor_id=$1 AND status='available' AND payout_id IS NULL",[instructorId]);const amount=Number(available.rows[0].total||0);if(amount<=0)return json(res,409,{message:'This instructor has no available earnings.'});const id=uuid(),ref='EQ-PAYOUT-'+Date.now().toString().slice(-10);await db.query("INSERT INTO instructor_payouts(id,instructor_id,amount_cents,currency,status,reference,period_start,period_end,paid_at) VALUES($1,$2,$3,'USD','paid',$4,$5,$6,now())",[id,instructorId,amount,ref,available.rows[0].period_start,available.rows[0].period_end]);await db.query("UPDATE instructor_earnings SET status='paid',payout_id=$1 WHERE instructor_id=$2 AND status='available' AND payout_id IS NULL",[id,instructorId]);await audit(u,'payout.approved','user',instructorId,{payoutId:id,amountCents:amount});return json(res,201,{payout:{id,reference:ref,amountCents:amount,status:'paid'}})}catch(e){return dbFail(res,e)}}
-  if(url.pathname==='/api/admin/coupons'&&req.method==='POST'){const u=await requireRole(req,res,['admin']);if(!u)return;try{const x=await readJson(req),code=String(x.code||'').trim().toUpperCase();if(!/^[A-Z0-9_-]{3,30}$/.test(code))return json(res,400,{message:'Use a coupon code of 3–30 letters, numbers, _ or -.'});const type=x.discountType==='fixed'?'fixed':'percent',value=type==='percent'?Math.min(100,Math.max(1,Number(x.discountValue||0))):Math.max(1,Number(x.discountValue||0));const id=uuid();await db.query('INSERT INTO coupons(id,code,description,discount_type,discount_value,max_redemptions,created_by,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,code,String(x.description||''),type,Math.round(value),x.maxRedemptions?Number(x.maxRedemptions):null,u.id,x.endsAt||null]);return json(res,201,{id,code})}catch(e){return dbFail(res,e)}}
+  if(url.pathname==='/api/admin/coupons'&&req.method==='POST'){const u=await requireRole(req,res,['admin']);if(!u)return;try{const x=await readJson(req),code=String(x.code||'').trim().toUpperCase();if(!/^[A-Z0-9_-]{3,30}$/.test(code))return json(res,400,{message:'Use a coupon code of 3–30 letters, numbers, _ or -.'});const type=x.discountType==='fixed'?'fixed':'percent',value=type==='percent'?Math.min(100,Math.max(1,Number(x.discountValue||0))):Math.max(1,Number(x.discountValue||0));const id=uuid();await db.query('INSERT INTO coupons(id,code,description,discount_type,discount_value,max_redemptions,created_by,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,code,String(x.description||''),type,Math.round(value),x.maxRedemptions?Number(x.maxRedemptions):null,u.id,x.endsAt||null]);await audit(u,'coupon.created','coupon',id,{code});return json(res,201,{id,code})}catch(e){return dbFail(res,e)}}
+  if(url.pathname==='/api/admin/coupons'&&req.method==='GET'){const u=await requireRole(req,res,['admin']);if(!u)return;try{const r=await db.query(`SELECT c.*,(SELECT count(*) FROM coupon_redemptions cr WHERE cr.coupon_id=c.id) used FROM coupons c ORDER BY c.created_at DESC LIMIT 300`);return json(res,200,{coupons:r.rows})}catch(e){return dbFail(res,e)}}
+  const toggleCoupon=url.pathname.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})\/(activate|deactivate)$/i);if(toggleCoupon&&req.method==='POST'){const u=await requireRole(req,res,['admin']);if(!u)return;try{const active=toggleCoupon[2]==='activate';await db.query('UPDATE coupons SET active=$2 WHERE id=$1',[toggleCoupon[1],active]);await audit(u,'coupon.'+(active?'activated':'deactivated'),'coupon',toggleCoupon[1],{});return json(res,200,{ok:true})}catch(e){return dbFail(res,e)}}
 
 
   // Phase 13 live learning
@@ -793,6 +954,7 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
     const u=await requireRole(req,res,['student','instructor','admin']);if(!u)return;try{const live=await db.query('SELECT instructor_id FROM live_classes WHERE id=$1',[liveMessages[1]]);if(!live.rowCount)return json(res,404,{message:'Live class not found.'});if(u.role==='student'){const allowed=await db.query('SELECT 1 FROM live_class_attendance WHERE live_class_id=$1 AND student_id=$2',[liveMessages[1],u.id]);if(!allowed.rowCount)return json(res,403,{message:'Reserve this class before using its chat.'})}else if(u.role==='instructor'&&live.rows[0].instructor_id!==u.id)return json(res,403,{message:'This class belongs to another instructor.'});const x=await readJson(req),message=String(x.message||'').trim();if(!message||message.length>1500)return json(res,400,{message:'Enter a message of up to 1,500 characters.'});await db.query('INSERT INTO live_class_messages(id,live_class_id,user_id,message) VALUES($1,$2,$3,$4)',[uuid(),liveMessages[1],u.id,message]);return json(res,201,{ok:true})}catch(e){return dbFail(res,e)}
   }
   const calendarLive=url.pathname.match(/^\/api\/live-classes\/([0-9a-f-]{36})\/calendar\.ics$/i);if(calendarLive&&req.method==='GET'){
+    const calUser=await requireRole(req,res,['student','instructor','admin']);if(!calUser)return;
     try{const r=await db.query(`SELECT l.*,u.name instructor_name FROM live_classes l JOIN users u ON u.id=l.instructor_id WHERE l.id=$1`,[calendarLive[1]]);if(!r.rowCount){res.writeHead(404,securityHeaders);return res.end('Not found')}const l=r.rows[0],start=new Date(l.starts_at),end=new Date(start.getTime()+Number(l.duration_minutes)*60000),fmt=d=>d.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z'),safe=v=>String(v||'').replace(/[\\;,\n]/g,m=>({'\\':'\\\\',';':'\\;',',':'\\,','\n':'\\n'}[m]||''));const ics=`BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//EduQuinn//Live Classes//EN\r\nBEGIN:VEVENT\r\nUID:${l.id}@eduquinn\r\nDTSTAMP:${fmt(new Date())}\r\nDTSTART:${fmt(start)}\r\nDTEND:${fmt(end)}\r\nSUMMARY:${safe(l.title)}\r\nDESCRIPTION:${safe((l.description||'')+' Instructor: '+l.instructor_name)}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;res.writeHead(200,{...securityHeaders,'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':`attachment; filename="eduquinn-live-class.ics"`});return res.end(ics)}catch(e){return dbFail(res,e)}
   }
   if(url.pathname==='/api/admin/system-health'&&req.method==='GET'){
@@ -827,6 +989,12 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
   }
   if(url.pathname==='/api/admin/users'&&req.method==='GET'){
     const u=await requireRole(req,res,['admin']);if(!u)return;try{const r=await db.query('SELECT id,name,email,role,status,expertise,email_verified,created_at FROM users ORDER BY created_at DESC LIMIT 500');return json(res,200,{users:r.rows})}catch(e){return dbFail(res,e)}
+  }
+  const adminUserStatus=url.pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/status$/i);if(adminUserStatus&&req.method==='POST'){
+    const u=await requireRole(req,res,['admin']);if(!u)return;try{const x=await readJson(req),status=String(x.status||'');if(!['active','suspended','disabled'].includes(status))return json(res,400,{message:'Invalid user status.'});if(adminUserStatus[1]===u.id)return json(res,400,{message:'You cannot change your own account status.'});const target=await db.query('SELECT id,role,status FROM users WHERE id=$1',[adminUserStatus[1]]);if(!target.rowCount)return json(res,404,{message:'User not found.'});if(target.rows[0].role==='admin'&&status!=='active')return json(res,403,{message:'Other administrator accounts cannot be suspended or disabled from here.'});const q=await db.query('UPDATE users SET status=$2,updated_at=now() WHERE id=$1 RETURNING id,name,email,role,status',[adminUserStatus[1],status]);if(status!=='active')await db.query('DELETE FROM sessions WHERE user_id=$1',[adminUserStatus[1]]);await audit(u,'user.status_updated','user',adminUserStatus[1],{status});try{await notifyUser(adminUserStatus[1],{type:'account_status',title:status==='active'?'Your account has been reactivated':'Your account access has changed',body:status==='active'?'An administrator has reactivated your EduQuinn account.':`An administrator has set your EduQuinn account to "${status}". Contact support if you believe this is a mistake.`,link:'/support.html',emailSubject:`EduQuinn account status: ${status}`,emailText:status==='active'?'An administrator has reactivated your EduQuinn account. You can sign in again.':`An administrator has set your EduQuinn account status to "${status}". If you believe this is a mistake, contact ${SUPPORT_EMAIL}.`,channel:'account'})}catch{}return json(res,200,{user:q.rows[0]})}catch(e){return dbFail(res,e)}
+  }
+  const adminUserReset=url.pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/reset-password$/i);if(adminUserReset&&req.method==='POST'){
+    const u=await requireRole(req,res,['admin']);if(!u)return;try{const target=await db.query('SELECT id,name,email FROM users WHERE id=$1',[adminUserReset[1]]);if(!target.rowCount)return json(res,404,{message:'User not found.'});const tempPassword=crypto.randomBytes(9).toString('base64').replace(/[+/=]/g,'x')+'!2';const hash=await bcrypt.hash(tempPassword,12);await db.query('UPDATE users SET password_hash=$2,updated_at=now() WHERE id=$1',[adminUserReset[1],hash]);await db.query('DELETE FROM sessions WHERE user_id=$1',[adminUserReset[1]]);await audit(u,'user.password_reset','user',adminUserReset[1],{});try{await notifyUser(adminUserReset[1],{type:'account_status',title:'Your password was reset by an administrator',body:'An administrator reset your EduQuinn password. You will need a new password to sign in — contact support if you did not expect this.',link:'/login.html',emailSubject:'Your EduQuinn password was reset',emailText:`An administrator reset the password on your EduQuinn account (${target.rows[0].email}). If you did not expect this, contact ${SUPPORT_EMAIL} immediately.`,channel:'account'})}catch{}return json(res,200,{tempPassword})}catch(e){return dbFail(res,e)}
   }
   if(url.pathname==='/api/admin/audit'&&req.method==='GET'){
     const u=await requireRole(req,res,['admin']);if(!u)return;try{const r=await db.query(`SELECT a.*,u.name actor_name,u.email actor_email FROM audit_log a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 300`);return json(res,200,{events:r.rows})}catch(e){return dbFail(res,e)}

@@ -37,6 +37,8 @@ function courseRows(cs) {
                 class="table-action course-edit"
                 data-course-id="${esc(c.id)}"
                 data-title="${esc(c.title)}"
+                data-subtitle="${esc(c.subtitle || '')}"
+                data-description="${esc(c.description || '')}"
                 data-category="${esc(c.category || '')}"
                 data-level="${esc(c.education_level || '')}"
                 data-price="${Number(c.price_cents || 0) / 100}">
@@ -70,71 +72,112 @@ function courseRows(cs) {
         </a>
       </div>`;
 }
+function openCourseEditModal(data, onSave, opts = {}) {
+
+  document.querySelector('.eq-modal-backdrop')?.remove();
+
+  const levels = ['Primary', 'Secondary', 'A-Level', 'Tertiary', 'Professional'];
+  const heading = opts.heading || 'Edit course';
+  const sub = opts.sub || "Update the details students see on this course's page.";
+  const submitLabel = opts.submitLabel || 'Save changes';
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'eq-modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="eq-modal">
+      <button type="button" class="eq-modal-close" aria-label="Close">&times;</button>
+      <h2>${esc(heading)}</h2>
+      <p class="eq-modal-sub">${esc(sub)}</p>
+      <form class="form-panel" id="courseEditForm">
+        <label>Title
+          <input name="title" required minlength="4" value="${esc(data.title)}">
+        </label>
+        <label>Subtitle
+          <input name="subtitle" maxlength="200" placeholder="A short one-line summary" value="${esc(data.subtitle)}">
+        </label>
+        <label>Description
+          <textarea name="description" rows="6" maxlength="8000" placeholder="What will students learn in this course?">${esc(data.description)}</textarea>
+        </label>
+        <label>Category / subject
+          <input name="category" value="${esc(data.category)}">
+        </label>
+        <label>Education level
+          <select name="educationLevel">
+            ${levels.map(l => `<option value="${esc(l)}" ${String(data.educationLevel).toLowerCase() === l.toLowerCase() ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </label>
+        <label>Price (USD)
+          <input name="price" type="number" min="0" step="0.01" value="${esc(data.price)}">
+        </label>
+        <div class="eq-modal-actions">
+          <button type="button" class="btn btn-ghost" id="courseEditCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">${esc(submitLabel)}</button>
+        </div>
+      </form>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.querySelector('.eq-modal-close').onclick = close;
+  backdrop.querySelector('#courseEditCancel').onclick = close;
+  backdrop.onclick = (e) => { if (e.target === backdrop) close() };
+
+  backdrop.querySelector('#courseEditForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const btn = e.currentTarget.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+      await onSave({
+        title: String(f.get('title') || '').trim(),
+        subtitle: String(f.get('subtitle') || '').trim(),
+        description: String(f.get('description') || '').trim(),
+        category: String(f.get('category') || '').trim(),
+        educationLevel: String(f.get('educationLevel') || ''),
+        price: Number(f.get('price') || 0)
+      });
+      close();
+    } catch (err) {
+      alert(err.message || 'Unable to update this course.');
+      btn.disabled = false;
+      btn.textContent = submitLabel;
+    }
+  };
+}
 function bindCourseActions(refreshPage) {
 
   document
     .querySelectorAll('.course-edit')
     .forEach(button => {
 
-      button.addEventListener('click', async () => {
+      button.addEventListener('click', () => {
 
         const id = button.dataset.courseId;
 
-        const title = prompt(
-          'Course title',
-          button.dataset.title || ''
+        openCourseEditModal(
+          {
+            title: button.dataset.title || '',
+            subtitle: button.dataset.subtitle || '',
+            description: button.dataset.description || '',
+            category: button.dataset.category || '',
+            educationLevel: button.dataset.level || '',
+            price: button.dataset.price || '0'
+          },
+          async (payload) => {
+
+            await api(
+              '/api/instructor/courses/' + id,
+              {
+                method: 'PATCH',
+                body: JSON.stringify(payload)
+              }
+            );
+
+            await refreshPage();
+          }
         );
-
-        if (title === null) return;
-
-        const level = prompt(
-          'Education level',
-          button.dataset.level || ''
-        );
-
-        if (level === null) return;
-
-        const category = prompt(
-          'Category / subject',
-          button.dataset.category || ''
-        );
-
-        if (category === null) return;
-
-        const price = prompt(
-          'Price in USD',
-          button.dataset.price || '0'
-        );
-
-        if (price === null) return;
-
-        try {
-
-          await api(
-            '/api/instructor/courses/' + id,
-            {
-              method: 'PATCH',
-
-              body: JSON.stringify({
-                title,
-                educationLevel: level,
-                category,
-                price: Number(price || 0)
-              })
-            }
-          );
-
-          alert('Course updated successfully.');
-
-          await refreshPage();
-
-        } catch (e) {
-
-          alert(
-            e.message ||
-            'Unable to update this course.'
-          );
-        }
       });
     });
 

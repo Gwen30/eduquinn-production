@@ -36,7 +36,7 @@
           <option>Sales</option><option>Communication & Public Speaking</option>
           <option>Personal Development</option><option>Technical & Vocational Trades</option>
           <option>Other / Multidisciplinary</option></optgroup></select></label>
-      <label>Password<input id="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label>
+      <label>Password<input id="password" type="password" required minlength="10" pattern="(?=.*[A-Za-z])(?=.*[0-9]).{10,}" title="At least 10 characters, including a letter and a number" autocomplete="new-password" placeholder="At least 10 characters, with a letter and a number"></label>
       <label class="check">
   <input id="terms" type="checkbox" required>
 

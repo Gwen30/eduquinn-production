@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.EduQuinn" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/eduquinn_burgundy</item>
+        <item name="android:navigationBarColor">@color/eduquinn_cream</item>
+        <item name="android:statusBarColor">@color/eduquinn_cream</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

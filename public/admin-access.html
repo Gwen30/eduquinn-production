@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Secure Administration Access — EduQuinn</title><link rel="stylesheet" href="/styles.css"><script src="/icons.js"></script><script src="/auth.js"></script><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632"></head><body class="auth-body"><a class="brand auth-brand" href="/"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Secure administration</small></span></a><main class="auth-card"><p class="eyebrow">RESTRICTED ACCESS</p><h1>Administrator sign in</h1><p class="auth-intro">This portal is reserved for authorised EduQuinn administrators.</p><form id="adminForm"><label>Email address<input id="adminEmail" type="email" required autocomplete="username"></label><label>Password<input id="adminPassword" type="password" required autocomplete="current-password"></label><p class="form-error" id="adminError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Sign in to administration</button></form></main><script>
+(()=>{
+  const form=document.getElementById('adminForm');
+  const emailInput=document.getElementById('adminEmail');
+  const passwordInput=document.getElementById('adminPassword');
+  const errorBox=document.getElementById('adminError');
+  const btn=form?.querySelector('button[type="submit"]');
+  if(!form||!emailInput||!passwordInput||!errorBox||!btn){console.error('EduQuinn administrator login form is incomplete.');return;}
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();errorBox.textContent='';btn.disabled=true;btn.textContent='Signing in…';
+    const result=await EduQuinnAuth.login(emailInput.value,passwordInput.value,'admin');
+    btn.disabled=false;btn.textContent='Sign in to administration';
+    if(!result.ok){errorBox.textContent=result.message;return;}
+    location.replace('/admin.html');
+  });
+})();
+</script><script src="/pwa.js"></script></body></html>

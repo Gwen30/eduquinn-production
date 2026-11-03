@@ -999,6 +999,45 @@ Sign in to reply.`,channel:'messages'});return json(res,201,{id})}catch(e){retur
   if(url.pathname==='/api/admin/audit'&&req.method==='GET'){
     const u=await requireRole(req,res,['admin']);if(!u)return;try{const r=await db.query(`SELECT a.*,u.name actor_name,u.email actor_email FROM audit_log a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 300`);return json(res,200,{events:r.rows})}catch(e){return dbFail(res,e)}
   }
+  const adminUserProfile=url.pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/profile$/i);
+  if(adminUserProfile&&req.method==='GET'){
+    const u=await requireRole(req,res,['admin']);if(!u)return;const targetId=adminUserProfile[1];try{
+      const target=await db.query('SELECT id,name,email,role,status,expertise,email_verified,created_at,updated_at FROM users WHERE id=$1',[targetId]);
+      if(!target.rowCount)return json(res,404,{message:'User not found.'});
+      const [enrolments,orders,refunds,notes,activity,instructorCourses,instructorEarnings]=await Promise.all([
+        db.query(`SELECT e.course_id,e.progress,e.enrolled_at,e.completed_at,c.title course_title,c.category,c.price_cents FROM enrolments e JOIN courses c ON c.id=e.course_id WHERE e.student_id=$1 ORDER BY e.enrolled_at DESC`,[targetId]),
+        db.query(`SELECT o.id,o.status,o.payment_method,o.currency,o.total_cents,o.created_at,o.paid_at,COALESCE((SELECT json_agg(json_build_object('courseId',oi.course_id,'title',c.title,'unitPriceCents',oi.unit_price_cents)) FROM order_items oi JOIN courses c ON c.id=oi.course_id WHERE oi.order_id=o.id),'[]'::json) items FROM orders o WHERE o.student_id=$1 ORDER BY o.created_at DESC LIMIT 200`,[targetId]),
+        db.query(`SELECT f.id,f.order_id,f.amount_cents,f.reason,f.status,f.admin_note,f.created_at,f.resolved_at FROM refunds f JOIN orders o ON o.id=f.order_id WHERE o.student_id=$1 ORDER BY f.created_at DESC LIMIT 100`,[targetId]),
+        db.query(`SELECT n.id,n.body,n.created_at,a.name author_name FROM admin_notes n LEFT JOIN users a ON a.id=n.author_id WHERE n.user_id=$1 ORDER BY n.created_at DESC LIMIT 200`,[targetId]),
+        db.query(`SELECT a.id,a.action,a.entity_type,a.entity_id,a.details,a.created_at,u.name actor_name FROM audit_log a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.actor_user_id=$1 OR (a.entity_type='user' AND a.entity_id=$1) ORDER BY a.created_at DESC LIMIT 100`,[targetId]),
+        db.query(`SELECT c.id,c.title,c.status,c.price_cents,c.created_at,(SELECT count(*) FROM enrolments e WHERE e.course_id=c.id) student_count FROM courses c WHERE c.instructor_id=$1 ORDER BY c.created_at DESC`,[targetId]),
+        db.query(`SELECT COALESCE(sum(instructor_cents) FILTER (WHERE status='available'),0)::bigint available_cents,COALESCE(sum(instructor_cents) FILTER (WHERE status='pending'),0)::bigint pending_cents,COALESCE(sum(instructor_cents),0)::bigint lifetime_cents FROM instructor_earnings WHERE instructor_id=$1`,[targetId])
+      ]);
+      return json(res,200,{
+        user:target.rows[0],
+        enrolments:enrolments.rows,
+        orders:orders.rows,
+        refunds:refunds.rows,
+        notes:notes.rows,
+        activity:activity.rows,
+        instructorCourses:instructorCourses.rows,
+        instructorEarnings:instructorEarnings.rows[0]
+      })
+    }catch(e){return dbFail(res,e)}
+  }
+  if(adminUserProfile&&req.method==='POST'){
+    const u=await requireRole(req,res,['admin']);if(!u)return;const targetId=adminUserProfile[1];try{
+      const target=await db.query('SELECT id FROM users WHERE id=$1',[targetId]);
+      if(!target.rowCount)return json(res,404,{message:'User not found.'});
+      const x=await readJson(req),body=String(x.body||'').trim();
+      if(body.length<1||body.length>4000)return json(res,400,{message:'A note must be between 1 and 4000 characters.'});
+      const id=uuid();
+      await db.query('INSERT INTO admin_notes(id,user_id,author_id,body) VALUES($1,$2,$3,$4)',[id,targetId,u.id,body]);
+      await audit(u,'user.note_added','user',targetId,{noteId:id});
+      const row=await db.query('SELECT n.id,n.body,n.created_at,a.name author_name FROM admin_notes n LEFT JOIN users a ON a.id=n.author_id WHERE n.id=$1',[id]);
+      return json(res,201,{note:row.rows[0]})
+    }catch(e){return e.status?json(res,e.status,{message:e.message}):dbFail(res,e)}
+  }
   return json(res,404,{message:'API route not found.'});
 }
 

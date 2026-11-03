@@ -1,5 +1,5 @@
-const CACHE='eduquinn-shell-v15';
-const SHELL=['/','/index.html','/styles.css','/icons.js','/auth.js','/app.js','/offline.html','/manifest.webmanifest','/app-icon.svg'];
+const CACHE='eduquinn-shell-v17';
+const SHELL=['/','/index.html','/styles.css','/icons.js','/auth.js','/app.js','/splash.js','/offline.html','/manifest.webmanifest','/app-icon.svg','/app-icon-maskable.svg','/icon-192.png','/icon-512.png','/icon-maskable-512.png','/favicon.ico','/apple-touch-icon.png','/admin.html','/admin-manifest.webmanifest','/admin-app-icon.svg','/admin-app-icon-maskable.svg','/admin-icon-192.png','/admin-icon-512.png','/admin-icon-maskable-512.png','/admin-favicon.ico','/admin-apple-touch-icon.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{

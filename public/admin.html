@@ -1,1 +1,27 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EduQuinn Admin</title><link rel="stylesheet" href="/styles.css"><script src="/icons.js"></script><script src="/auth.js"></script><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632"></head><body data-admin-page="dashboard"><div id="adminApp"></div><script src="/admin.js"></script><script src="/pwa.js"></script></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EduQuinn Admin</title><link rel="stylesheet" href="/styles.css"><style>
+    #appSplash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#171210;transition:opacity .45s ease,visibility .45s ease}
+    #appSplash.is-hidden{opacity:0;visibility:hidden;pointer-events:none}
+    #appSplash .splash-badge{width:84px;height:84px;border-radius:19px;background:linear-gradient(135deg,#2b2420 0%,#171210 55%,#0a0807 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 18px 40px rgba(0,0,0,.45);border:1px solid rgba(200,146,47,.3)}
+    #appSplash .splash-badge svg{width:46px;height:46px}
+    #appSplash .splash-word{margin-top:20px;font-family:Georgia,serif;font-weight:700;font-size:26px;color:#e3b65a;letter-spacing:.2px}
+    #appSplash .splash-tag{margin-top:4px;font-family:Inter,Arial,sans-serif;font-size:12px;color:#a89a86;letter-spacing:1.5px}
+    #appSplash .splash-dots{margin-top:26px;display:flex;gap:7px}
+    #appSplash .splash-dots span{width:7px;height:7px;border-radius:50%;background:#c8922f;opacity:.35;animation:splashPulse 1.1s ease-in-out infinite}
+    #appSplash .splash-dots span:nth-child(2){animation-delay:.15s}
+    #appSplash .splash-dots span:nth-child(3){animation-delay:.3s}
+    @keyframes splashPulse{0%,80%,100%{opacity:.3;transform:scale(.85)}40%{opacity:1;transform:scale(1)}}
+    @media (prefers-reduced-motion:reduce){
+      #appSplash{transition:none}
+      #appSplash .splash-dots span{animation:none;opacity:.7}
+    }
+  </style><script src="/icons.js"></script><script src="/auth.js"></script><link rel="icon" href="/admin-favicon.ico" sizes="any"><link rel="icon" href="/admin-app-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/admin-apple-touch-icon.png"><link rel="manifest" href="/admin-manifest.webmanifest"><meta name="theme-color" content="#171210"></head><body data-admin-page="dashboard">
+  <div id="appSplash" aria-hidden="true">
+    <div class="splash-badge">
+      <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e3b65a"/><stop offset="100%" stop-color="#c8922f"/></linearGradient></defs><text x="256" y="300" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="224" fill="url(#g1)">EQ</text><rect x="206" y="336" width="100" height="10" rx="5" fill="#fffffa" fill-opacity="0.85"/></svg>
+    </div>
+    <p class="splash-word">EduQuinn Admin</p>
+    <p class="splash-tag">PLATFORM ADMINISTRATION</p>
+    <div class="splash-dots"><span></span><span></span><span></span></div>
+  </div>
+  <script src="/splash.js"></script>
+  <div id="adminApp"></div><script src="/admin.js"></script><script src="/pwa.js"></script></body></html>

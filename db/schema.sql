@@ -469,3 +469,13 @@ ALTER TABLE assessment_questions
 ALTER TABLE lessons
   ADD COLUMN IF NOT EXISTS metadata jsonb
   NOT NULL DEFAULT '{}'::jsonb;
+
+-- Admin CRM: notes an administrator attaches to a user's profile record
+CREATE TABLE IF NOT EXISTS admin_notes (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  author_id uuid REFERENCES users(id) ON DELETE SET NULL,
+  body text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 4000),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS admin_notes_user_idx ON admin_notes(user_id, created_at DESC);

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgA" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2b2420"/>
+      <stop offset="55%" stop-color="#171210"/>
+      <stop offset="100%" stop-color="#0a0807"/>
+    </linearGradient>
+    <linearGradient id="goldA" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#e3b65a"/>
+      <stop offset="100%" stop-color="#c8922f"/>
+    </linearGradient>
+    <radialGradient id="sheenA" cx="30%" cy="22%" r="70%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="45%" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#bgA)"/>
+  <rect width="512" height="512" rx="114" fill="url(#sheenA)"/>
+  <rect width="512" height="512" rx="114" fill="none" stroke="#c8922f" stroke-opacity="0.28" stroke-width="2"/>
+
+  <text x="246" y="294" font-family="Poppins" font-weight="700" font-size="204"
+        fill="url(#goldA)" text-anchor="middle" letter-spacing="-4">EQ</text>
+
+  <rect x="198" y="350" width="92" height="9" rx="4.5" fill="#fffffa" fill-opacity="0.85"/>
+</svg>

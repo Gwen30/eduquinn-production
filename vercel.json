@@ -1,0 +1,58 @@
+{
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/health", "destination": "/api/index" },
+    { "source": "/ready", "destination": "/api/index" },
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(self), microphone=(self), geolocation=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-t/eTlbLWDWAIU9+yWPOS1zIpJdkMVj7iLcX0GPuqM7s=' 'sha256-6W3Pwz7K6uVZ0uWt1Y+aDG3lz9IEpQUar17l3gPXuFE=' 'sha256-ioK0Mc1gISEXTnzGL6U7NudlIaWQVaUhst2/AKlJoPw=' 'sha256-ClYVc3pR1yHqcwlTxk91rgG1LFLp7g1tVycyuPbEttI=' 'sha256-l2j6/x1YjrcrfMl4ZC8lDEa2NZBgZWQfwdvi3RcM0c8=' 'sha256-U+JvqpGjJ1B2M+1wvoRXoZQ4frPmC4RqTGTb7nSGLpk=' 'sha256-vrQMcf+56qfy3wfISz92LpbminwzHpWVStabmbVDE6M='; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+        },
+        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" }
+      ]
+    },
+    {
+      "source": "/(.*\\.html)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(self), microphone=(self), geolocation=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-t/eTlbLWDWAIU9+yWPOS1zIpJdkMVj7iLcX0GPuqM7s=' 'sha256-6W3Pwz7K6uVZ0uWt1Y+aDG3lz9IEpQUar17l3gPXuFE=' 'sha256-ioK0Mc1gISEXTnzGL6U7NudlIaWQVaUhst2/AKlJoPw=' 'sha256-ClYVc3pR1yHqcwlTxk91rgG1LFLp7g1tVycyuPbEttI=' 'sha256-l2j6/x1YjrcrfMl4ZC8lDEa2NZBgZWQfwdvi3RcM0c8=' 'sha256-U+JvqpGjJ1B2M+1wvoRXoZQ4frPmC4RqTGTb7nSGLpk=' 'sha256-vrQMcf+56qfy3wfISz92LpbminwzHpWVStabmbVDE6M='; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+        },
+        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" }
+      ]
+    },
+    {
+      "source": "/service-worker.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    },
+    {
+      "source": "/admin-manifest.webmanifest",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
+  ],
+  "crons": [
+    { "path": "/api/cron/maintenance", "schedule": "0 3 * * *" }
+  ]
+}

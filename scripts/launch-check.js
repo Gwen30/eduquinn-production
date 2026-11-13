@@ -1,6 +1,5 @@
-const fs=require('fs');
-const path=require('path');
 const db=require('../db');
+const storage=require('../lib/storage');
 function check(name,ok,detail=''){console.log(`${ok?'PASS':'FAIL'}  ${name}${detail?` — ${detail}`:''}`);return !!ok}
 (async()=>{let ok=true;
   const base=process.env.APP_BASE_URL||'';
@@ -11,7 +10,8 @@ function check(name,ok,detail=''){console.log(`${ok?'PASS':'FAIL'}  ${name}${det
   ok=check('Payment sandbox disabled',sandboxOff)&&ok;
   if(sandboxOff)ok=check('Paynow credentials configured',!!process.env.PAYNOW_INTEGRATION_ID&&!!process.env.PAYNOW_INTEGRATION_KEY,'required for real card/EcoCash/OneMoney payments once sandbox is off')&&ok;
   check('Transactional email configured',!!process.env.BREVO_API_KEY,process.env.BREVO_API_KEY?'configured':'recommended before public launch');
-  const media=path.resolve(process.env.MEDIA_ROOT||'./storage/media');try{fs.mkdirSync(media,{recursive:true});ok=check('Media storage writable',true,media)&&ok}catch(e){ok=check('Media storage writable',false,e.message)&&ok}
+  ok=check('Supabase Storage configured',!!process.env.SUPABASE_URL&&!!process.env.SUPABASE_SERVICE_ROLE_KEY,'set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')&&ok;
+  if(process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY){try{await storage.objectExists('__launch-check-probe__');check('Supabase Storage bucket reachable',true,storage.BUCKET)}catch(e){ok=check('Supabase Storage bucket reachable',false,e.message)&&ok}}
   const ping=await db.ping();ok=check('PostgreSQL reachable',ping.ok,ping.error||'')&&ok;
   if(ping.ok){
     const r=await db.query(`SELECT

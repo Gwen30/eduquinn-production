@@ -1,0 +1,21 @@
+# server.js is the Render-only entrypoint (http.createServer + .listen(),
+# plus an eager fs.mkdirSync('./storage/media') at module scope). It must
+# never be deployed to Vercel: Vercel's zero-config detection picked it up
+# via package.json's old "main": "server.js" field and ran it AS the
+# serverless function (ignoring api/index.js and vercel.json's routing
+# entirely), and it crashed immediately because /var/task is a read-only
+# filesystem there. Excluding it here is a hard guarantee it can't happen
+# again, on top of removing the "main" field from package.json.
+server.js
+
+# Render-specific deployment config, unused on Vercel.
+Dockerfile
+render.yaml
+
+# Local media storage directory (if present) — replaced by Supabase Storage.
+storage/
+
+# Not needed in the deployed function/static output.
+.env
+.env.*
+!.env.example

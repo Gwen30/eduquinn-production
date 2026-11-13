@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "zw.co.eduquinn.app",
+      "sha256_cert_fingerprints": [
+        "89:DC:10:21:6B:A3:75:98:EE:29:5E:A8:B3:BB:97:0C:C7:8B:E6:89:B0:95:5C:77:2B:7A:4A:94:A4:57:C4:F1"
+      ]
+    }
+  }
+]

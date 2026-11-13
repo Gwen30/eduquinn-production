@@ -479,3 +479,16 @@ CREATE TABLE IF NOT EXISTS admin_notes (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS admin_notes_user_idx ON admin_notes(user_id, created_at DESC);
+
+-- Phase 17: Vercel/Supabase migration. Replaces the old in-memory rateBuckets
+-- Map (server.js), which cannot work correctly once requests are handled by
+-- independent serverless invocations with no shared memory. A fixed-window
+-- counter keyed by "<group>:<ip>" (group is 'login' or 'api', matching the
+-- original two-tier limiter), with an atomic upsert so concurrent requests
+-- racing on the same key still count correctly.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key varchar(200) PRIMARY KEY,
+  window_start timestamptz NOT NULL,
+  count integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS rate_limits_window_idx ON rate_limits(window_start);

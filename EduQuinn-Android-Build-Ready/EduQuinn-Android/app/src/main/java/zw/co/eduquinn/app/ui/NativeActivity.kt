@@ -12,7 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.core.splashscreen.SplashScreen
+import androidx.core.splashscreen.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import zw.co.eduquinn.app.EduQuinnApplication
@@ -52,7 +52,7 @@ class NativeActivity : ComponentActivity() {
         // start (Theme.EduQuinn.Starting in styles.xml), now bridging the
         // moment between tapping the icon and the first Compose frame
         // instead of the WebView's first frame.
-        val splashScreen = SplashScreen.installSplashScreen(this)
+        val splashScreen = installSplashScreen()
         splashScreen.setKeepOnScreenCondition { !((sessionDone && minTimeDone) || forceDone) }
         val handler = Handler(Looper.getMainLooper())
         handler.postDelayed({ minTimeDone = true }, MIN_SPLASH_MS)

@@ -2827,3 +2827,40 @@ header,
     display:inline-flex!important;
   }
 }
+
+/* Instructor 2FA overlay (mfa.js) and the student email-verification
+   notices on login/signup/verify-email. Kept together since both are part
+   of the same auth-hardening pass. */
+.mfa-overlay{
+  position:fixed;inset:0;background:rgba(8,7,5,.55);z-index:1000;
+  display:grid;place-items:center;padding:20px;
+}
+.mfa-card{
+  background:#fff;border-radius:16px;padding:28px 26px;max-width:380px;width:100%;
+  max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);
+}
+.mfa-card h2{margin:0 0 12px;font-size:20px;line-height:1.25}
+.mfa-card p{margin:0 0 14px;font-size:14px;color:#444;line-height:1.5}
+.mfa-card label{display:block;margin:0 0 14px;font-size:13px;font-weight:700}
+.mfa-card input{
+  display:block;width:100%;margin-top:6px;padding:12px 14px;border-radius:10px;
+  border:1px solid var(--line);font-size:18px;letter-spacing:4px;text-align:center;
+}
+.mfa-qr{display:block;width:180px;height:180px;margin:0 auto 14px;border-radius:8px;border:1px solid var(--line)}
+.mfa-secret{
+  display:block;text-align:center;background:var(--paper);border:1px dashed var(--line);
+  border-radius:8px;padding:10px;margin:0 0 14px;font-size:15px;letter-spacing:2px;word-break:break-all;
+}
+.mfa-backup-codes{list-style:none;margin:0 0 18px;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mfa-backup-codes code{
+  display:block;text-align:center;background:var(--paper);border:1px solid var(--line);
+  border-radius:8px;padding:8px;font-size:14px;letter-spacing:1px;
+}
+.auth-notice{
+  background:var(--paper);border:1px solid var(--line);border-radius:10px;
+  padding:14px 16px;margin:0 0 16px;font-size:14px;line-height:1.5;
+}
+.auth-notice a,.auth-notice button{
+  background:none;border:none;color:var(--burgundy);font-weight:700;cursor:pointer;
+  padding:0;font-size:inherit;text-decoration:underline;
+}

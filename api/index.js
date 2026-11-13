@@ -27,6 +27,8 @@
 const crypto = require('crypto');
 const https = require('https');
 const bcrypt = require('bcryptjs');
+const { authenticator } = require('otplib');
+const QRCode = require('qrcode');
 const db = require('../db');
 const storage = require('../lib/storage');
 const { hitRate } = require('../lib/rateLimit');
@@ -40,6 +42,7 @@ const APP_BASE_URL = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
 const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || APP_BASE_URL).split(',').map((x) => x.trim()).filter(Boolean));
 const API_RATE_LIMIT = Math.max(30, Number(process.env.API_RATE_LIMIT || 300));
 const LOGIN_RATE_LIMIT = Math.max(3, Number(process.env.LOGIN_RATE_LIMIT || 10));
+const MFA_RATE_LIMIT = Math.max(3, Number(process.env.MFA_RATE_LIMIT || 8));
 const RATE_WINDOW_MS = Math.max(60000, Number(process.env.RATE_WINDOW_MS || 300000));
 const INSTRUCTOR_SHARE_PERCENT = Math.max(0, Math.min(100, Number(process.env.INSTRUCTOR_SHARE_PERCENT || 75)));
 const PAYMENT_SANDBOX = /^(1|true|yes)$/i.test(process.env.PAYMENT_SANDBOX || '');
@@ -263,6 +266,79 @@ async function paynowWebhook(request) {
   }
 }
 
+// ---- Instructor TOTP 2FA ----
+// A challenge row (mfa_challenges) is how a password check that has
+// succeeded, but isn't yet allowed a session, gets carried across the
+// extra round-trip to /api/auth/mfa/verify — the alternative (trusting a
+// client-held JWT asserting "password already checked") is exactly the
+// kind of thing that becomes a bypass if any other code path ever mints
+// one by mistake, so a server-side row with its own 10-minute expiry is
+// the safer default here.
+function genBackupCodes(n = 8) {
+  const codes = [];
+  for (let i = 0; i < n; i++) { const raw = crypto.randomBytes(5).toString('hex').toUpperCase(); codes.push(raw.slice(0, 5) + '-' + raw.slice(5, 10)); }
+  return codes;
+}
+async function hashBackupCodes(codes) {
+  return Promise.all(codes.map(async (c) => ({ hash: await bcrypt.hash(c, 10), used_at: null })));
+}
+async function consumeBackupCode(user, code) {
+  const list = Array.isArray(user.totp_backup_codes) ? user.totp_backup_codes : [];
+  const clean = String(code || '').trim().toUpperCase();
+  if (!clean) return false;
+  for (let i = 0; i < list.length; i++) {
+    const entry = list[i];
+    if (entry.used_at) continue;
+    if (await bcrypt.compare(clean, entry.hash)) {
+      list[i] = { ...entry, used_at: new Date().toISOString() };
+      await db.query('UPDATE users SET totp_backup_codes=$2::jsonb WHERE id=$1', [user.id, JSON.stringify(list)]);
+      return true;
+    }
+  }
+  return false;
+}
+async function createMfaChallenge(userId, kind, secret = null) {
+  const id = uuid();
+  await db.query(`INSERT INTO mfa_challenges(id,user_id,kind,secret,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')`, [id, userId, kind, secret]);
+  return id;
+}
+async function loadMfaChallenge(challengeId) {
+  const r = await db.query('SELECT * FROM mfa_challenges WHERE id=$1 AND consumed_at IS NULL AND expires_at>now()', [challengeId]);
+  return r.rows[0] || null;
+}
+async function consumeMfaChallenge(id) {
+  await db.query('UPDATE mfa_challenges SET consumed_at=now() WHERE id=$1', [id]);
+}
+// Shared by /api/auth/mfa/verify's two success paths (setup and login) —
+// the original inline login/register session code is left untouched below
+// to keep this change's diff minimal against existing, already-working
+// behaviour.
+async function issueSession(request, user, portal) {
+  const token = crypto.randomBytes(32).toString('hex'), sid = uuid(), seconds = SESSION_DAYS * 86400;
+  await db.query(`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+($4||' seconds')::interval)`, [sid, user.id, sha(token), seconds]);
+  await audit(user, 'auth.login', 'user', user.id, { portal: portal || 'public' });
+  await securityEvent(request, 'auth.login_succeeded', user.id, { portal: portal || 'public' });
+  return { headers: { 'Set-Cookie': setSessionCookieHeader(token, seconds) }, user: publicUser(user) };
+}
+// Called the moment a password check succeeds for an instructor, from both
+// /api/auth/login and (for a brand-new instructor account)
+// /api/auth/register — same gate either way, so there's no gap where a
+// freshly-registered instructor gets a full session with 2FA only asked
+// for on their *next* login.
+async function startInstructorAuth(request, user) {
+  if (!user.totp_secret) {
+    const secret = authenticator.generateSecret();
+    const challengeId = await createMfaChallenge(user.id, 'setup', secret);
+    const otpauthUrl = authenticator.keyuri(user.email, 'EduQuinn', secret);
+    let qrDataUrl = null; try { qrDataUrl = await QRCode.toDataURL(otpauthUrl); } catch {}
+    await securityEvent(request, 'auth.mfa_setup_started', user.id, {});
+    return json(200, { mfaSetupRequired: true, challengeId, secret, otpauthUrl, qrDataUrl });
+  }
+  const challengeId = await createMfaChallenge(user.id, 'login');
+  await securityEvent(request, 'auth.mfa_challenge_started', user.id, {});
+  return json(200, { mfaRequired: true, challengeId });
+}
+
 async function receiveSupport(request) {
   try {
     const data = await readJson(request, 25000), clean = (v) => String(v || '').trim();
@@ -328,16 +404,85 @@ async function handle(request) {
       if (role === 'instructor' && !expertise) return json(400, { message: 'Please select your primary expertise.' });
       const exists = await db.query('SELECT 1 FROM users WHERE lower(email)=lower($1)', [email]); if (exists.rowCount) return json(409, { message: 'An account with this email address already exists.' });
       const id = uuid(), hash = await bcrypt.hash(password, 12); await db.query('INSERT INTO users(id,name,email,password_hash,role,status,expertise) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, name, email, hash, role, 'active', role === 'instructor' ? expertise : null]);
-      const token = crypto.randomBytes(32).toString('hex'), sid = uuid(), seconds = SESSION_DAYS * 86400; await db.query(`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+($4||' seconds')::interval)`, [sid, id, sha(token), seconds]); await audit({ id }, 'account.registered', 'user', id, { role });
-      return json(201, { user: { id, name, email, role, status: 'active', expertise: role === 'instructor' ? expertise : '' } }, { 'Set-Cookie': setSessionCookieHeader(token, seconds) });
+      await audit({ id }, 'account.registered', 'user', id, { role });
+      // Instructors go straight into the same 2FA enrolment gate a login
+      // would hit (totp_secret is always null on a brand-new row) — no
+      // session either way until that completes.
+      if (role === 'instructor') return startInstructorAuth(request, { id, email, totp_secret: null });
+      // Students: no session yet — a verification link has to be clicked
+      // first. Reuses the existing Brevo integration (sendBrevoEmail), the
+      // same one course-announcement emails already go through.
+      const verifyToken = crypto.randomBytes(32).toString('hex');
+      await db.query(`UPDATE users SET email_verify_token_hash=$2,email_verify_expires_at=now()+interval '24 hours' WHERE id=$1`, [id, sha(verifyToken)]);
+      await sendBrevoEmail({ userId: id, email, name, subject: 'Verify your EduQuinn email address', text: `Hi ${name},\n\nWelcome to EduQuinn! Confirm your email address to activate your account:\n\n${APP_BASE_URL}/verify-email.html?token=${verifyToken}\n\nThis link expires in 24 hours. If you didn't create this account, you can ignore this email.`, template: 'email_verification' });
+      return json(201, { pendingVerification: true, email, message: 'Check your email to verify your address, then log in.' });
     } catch (e) { return dbFail(e); }
   }
   if (url.pathname === '/api/auth/login' && method === 'POST') {
     try {
       const x = await readJson(request), email = String(x.email || '').trim().toLowerCase(), password = String(x.password || ''); const r = await db.query('SELECT * FROM users WHERE lower(email)=lower($1)', [email]); const u = r.rows[0]; if (!u || !(await bcrypt.compare(password, u.password_hash))) { await securityEvent(request, 'auth.login_failed', u?.id || null, { email }); return json(401, { message: 'The email address or password is incorrect.' }); } if (u.status !== 'active') { await securityEvent(request, 'auth.login_blocked', u.id, { status: u.status }); return json(403, { message: 'This account is not active.' }); }
       if (x.portal === 'public' && u.role === 'admin') return json(403, { message: 'Administrator sign-in is not available from the public login page.' }); if (x.portal === 'admin' && u.role !== 'admin') return json(403, { message: 'This account is not authorised for administration.' }); if (x.portal === 'public' && x.expectedRole && u.role !== x.expectedRole) return json(403, { message: x.expectedRole === 'student' ? 'This is not a student account. Choose Teacher login if you are an instructor.' : 'This is not a teacher account. Choose Student login if you are a learner.' });
+      if (u.role === 'student' && !u.email_verified) return json(403, { message: 'Please verify your email address before logging in. Check your inbox, or request a new link below.', needsVerification: true, email: u.email });
+      if (u.role === 'instructor') return startInstructorAuth(request, u);
       const token = crypto.randomBytes(32).toString('hex'), sid = uuid(), seconds = SESSION_DAYS * 86400; await db.query(`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+($4||' seconds')::interval)`, [sid, u.id, sha(token), seconds]); await audit(u, 'auth.login', 'user', u.id, { portal: x.portal || 'public' }); await securityEvent(request, 'auth.login_succeeded', u.id, { portal: x.portal || 'public' });
       return json(200, { user: publicUser(u) }, { 'Set-Cookie': setSessionCookieHeader(token, seconds) });
+    } catch (e) { return dbFail(e); }
+  }
+  if (url.pathname === '/api/auth/mfa/verify' && method === 'POST') {
+    try {
+      const rl = await hitRate(`mfa:${clientIp(request)}`, MFA_RATE_LIMIT, RATE_WINDOW_MS);
+      if (!rl.ok) return json(429, { message: 'Too many attempts. Please try again shortly.', retryAfter: rl.retry }, { 'Retry-After': String(rl.retry) });
+      const x = await readJson(request), challengeId = String(x.challengeId || ''), code = String(x.code || '').trim();
+      if (!/^[0-9a-f-]{36}$/i.test(challengeId) || !code) return json(400, { message: 'Enter the 6-digit code from your authenticator app.' });
+      const challenge = await loadMfaChallenge(challengeId);
+      if (!challenge) return json(400, { message: 'This verification step has expired. Please sign in again.' });
+      const user = (await db.query('SELECT * FROM users WHERE id=$1', [challenge.user_id])).rows[0];
+      if (!user) return json(400, { message: 'This verification step has expired. Please sign in again.' });
+      const cleanCode = code.replace(/\s+/g, '');
+      if (challenge.kind === 'setup') {
+        let ok = false; try { ok = authenticator.check(cleanCode, challenge.secret); } catch {}
+        if (!ok) { await securityEvent(request, 'auth.mfa_setup_failed', user.id, {}); return json(401, { message: 'That code is incorrect. Double-check your authenticator app and try again.' }); }
+        const backupCodes = genBackupCodes(), hashed = await hashBackupCodes(backupCodes);
+        await db.query('UPDATE users SET totp_secret=$2,totp_backup_codes=$3::jsonb WHERE id=$1', [user.id, challenge.secret, JSON.stringify(hashed)]);
+        await consumeMfaChallenge(challenge.id);
+        await securityEvent(request, 'auth.mfa_enabled', user.id, {});
+        const sess = await issueSession(request, user, 'public');
+        return json(200, { user: sess.user, backupCodes }, sess.headers);
+      }
+      let ok = false; try { ok = authenticator.check(cleanCode, user.totp_secret); } catch {}
+      if (!ok) ok = await consumeBackupCode(user, cleanCode);
+      if (!ok) { await securityEvent(request, 'auth.mfa_failed', user.id, {}); return json(401, { message: 'That code is incorrect or expired.' }); }
+      await consumeMfaChallenge(challenge.id);
+      const sess = await issueSession(request, user, 'public');
+      return json(200, { user: sess.user }, sess.headers);
+    } catch (e) { return dbFail(e); }
+  }
+  if (url.pathname === '/api/auth/verify-email' && method === 'POST') {
+    try {
+      const x = await readJson(request), token = String(x.token || '').trim();
+      if (!token) return json(400, { message: 'Missing verification token.' });
+      const r = await db.query('SELECT id,email_verified FROM users WHERE email_verify_token_hash=$1 AND email_verify_expires_at>now()', [sha(token)]);
+      const u = r.rows[0];
+      if (!u) return json(400, { message: 'This verification link is invalid or has expired. Request a new one below.', expired: true });
+      if (!u.email_verified) { await db.query('UPDATE users SET email_verified=true,email_verify_token_hash=NULL,email_verify_expires_at=NULL WHERE id=$1', [u.id]); await audit({ id: u.id }, 'account.email_verified', 'user', u.id, {}); }
+      return json(200, { ok: true });
+    } catch (e) { return dbFail(e); }
+  }
+  if (url.pathname === '/api/auth/resend-verification' && method === 'POST') {
+    try {
+      const rl = await hitRate(`verify-resend:${clientIp(request)}`, 5, RATE_WINDOW_MS);
+      if (!rl.ok) return json(429, { message: 'Too many requests. Please try again shortly.', retryAfter: rl.retry }, { 'Retry-After': String(rl.retry) });
+      const x = await readJson(request), email = String(x.email || '').trim().toLowerCase();
+      if (validEmail(email)) {
+        const u = (await db.query(`SELECT id,name,email,email_verified FROM users WHERE lower(email)=lower($1) AND role='student'`, [email])).rows[0];
+        if (u && !u.email_verified) {
+          const verifyToken = crypto.randomBytes(32).toString('hex');
+          await db.query(`UPDATE users SET email_verify_token_hash=$2,email_verify_expires_at=now()+interval '24 hours' WHERE id=$1`, [u.id, sha(verifyToken)]);
+          await sendBrevoEmail({ userId: u.id, email: u.email, name: u.name, subject: 'Verify your EduQuinn email address', text: `Hi ${u.name},\n\nConfirm your email address to activate your account:\n\n${APP_BASE_URL}/verify-email.html?token=${verifyToken}\n\nThis link expires in 24 hours.`, template: 'email_verification' });
+        }
+      }
+      // Same response either way — doesn't reveal whether that email is registered.
+      return json(200, { message: 'If that email needs verifying, a new link is on its way.' });
     } catch (e) { return dbFail(e); }
   }
   if (url.pathname === '/api/auth/logout' && method === 'POST') {

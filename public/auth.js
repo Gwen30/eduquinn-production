@@ -8,8 +8,15 @@ function session(){return parse(localStorage.getItem(SESSION_KEY),null)}
 function cache(user){if(user)localStorage.setItem(SESSION_KEY,JSON.stringify(user));else localStorage.removeItem(SESSION_KEY)}
 async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});let x={};try{x=await r.json()}catch{}if(!r.ok)throw Object.assign(new Error(x.message||'Request failed'),{status:r.status,data:x});return x}
 async function refresh(){try{const x=await api('/api/auth/session');cache(x.user||null);return x.user||null}catch{cache(null);return null}}
-async function login(email,password,portal='public',expectedRole=''){try{const x=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email,password,portal,expectedRole})});cache(x.user);return {ok:true,user:x.user}}catch(e){return {ok:false,message:e.message}}}
-async function register(data){try{const x=await api('/api/auth/register',{method:'POST',body:JSON.stringify(data)});cache(x.user);return {ok:true,user:x.user}}catch(e){return {ok:false,message:e.message}}}
+// login/register can now come back without a user: a student awaiting email
+// verification (pendingVerification) or an instructor mid-2FA
+// (mfaSetupRequired/mfaRequired) both return 2xx with no session yet, so the
+// caller gets the whole response and decides what to do - only a response
+// that actually carries a user gets cached as the active session. A
+// needsVerification/4xx failure still carries useful fields (email) via
+// e.data, so those are spread in too rather than losing them.
+async function login(email,password,portal='public',expectedRole=''){try{const x=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email,password,portal,expectedRole})});if(x.user)cache(x.user);return {ok:true,...x}}catch(e){return {ok:false,message:e.message,...(e.data||{})}}}
+async function register(data){try{const x=await api('/api/auth/register',{method:'POST',body:JSON.stringify(data)});if(x.user)cache(x.user);return {ok:true,...x}}catch(e){return {ok:false,message:e.message,...(e.data||{})}}}
 async function logout(){cache(null);try{await api('/api/auth/logout',{method:'POST',body:'{}'})}catch{}location.replace('/login.html')}
 function homeFor(role){return role==='admin'?'/admin.html':role==='instructor'?'/instructor.html':'/my-learning.html'}
 function can(roles){const s=session();return !!s&&roles.includes(s.role)}

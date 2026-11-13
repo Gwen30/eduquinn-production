@@ -51,38 +51,4 @@
     </a>
   </span>
 </label>
-      <p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Create account</button></form><p>Already registered? <a href="/login.html">Log in</a></p></main><script>
-(()=>{
-  const form=document.getElementById('authForm');
-  const nameInput=document.getElementById('name');
-  const emailInput=document.getElementById('email');
-  const passwordInput=document.getElementById('password');
-  const roleSelect=document.getElementById('role');
-  const expertiseWrap=document.getElementById('expertiseWrap');
-  const expertiseSelect=document.getElementById('expertise');
-  const errorBox=document.getElementById('authError');
-  const btn=form?.querySelector('button[type="submit"]');
-  const termsLink=document.getElementById('termsLink');
-  const termsLabel=document.getElementById('termsLabel');
-  if(!form||!nameInput||!emailInput||!passwordInput||!roleSelect||!expertiseWrap||!expertiseSelect||!errorBox||!btn){console.error('EduQuinn signup form is incomplete.');return;}
-  const q=new URLSearchParams(location.search);
-  if(['student','instructor'].includes(q.get('role'))) roleSelect.value=q.get('role');
-  const syncRole=()=>{
-    const isInstructor=roleSelect.value==='instructor';
-    expertiseWrap.hidden=!isInstructor;
-    expertiseSelect.required=isInstructor;
-    if(termsLink&&termsLabel){
-      termsLink.href=isInstructor?'/instructor-policy.html':'/privacy-policy.html';
-      termsLabel.textContent=isInstructor?'EduQuinn Instructor Terms & Privacy Policy':'EduQuinn Terms & Privacy Policy';
-    }
-  };
-  roleSelect.addEventListener('change',syncRole);syncRole();
-  form.addEventListener('submit',async e=>{
-    e.preventDefault();errorBox.textContent='';btn.disabled=true;btn.textContent='Creating account…';
-    const result=await EduQuinnAuth.register({name:nameInput.value,email:emailInput.value,password:passwordInput.value,role:roleSelect.value,expertise:roleSelect.value==='instructor'?expertiseSelect.value:''});
-    btn.disabled=false;btn.textContent='Create account';
-    if(!result.ok){errorBox.textContent=result.message;return;}
-    location.replace(result.user.role==='instructor'?'/instructor-onboarding.html':EduQuinnAuth.homeFor(result.user.role));
-  });
-})();
-</script><script src="/pwa.js"></script></body></html>
+      <p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Create account</button></form><p>Already registered? <a href="/login.html">Log in</a></p></main><script src="/mfa.js"></script><script src="/signup.js"></script><script src="/pwa.js"></script></body></html>

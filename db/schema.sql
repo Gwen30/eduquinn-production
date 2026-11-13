@@ -492,3 +492,37 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count integer NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS rate_limits_window_idx ON rate_limits(window_start);
+
+-- Phase 18: instructor TOTP 2FA + student email verification.
+--   - totp_secret: base32 TOTP secret, set once an instructor completes
+--     enrolment (null until then — its presence is what tells /api/auth/login
+--     whether to start a "setup" or a "login" MFA challenge).
+--   - totp_backup_codes: jsonb array of {hash, used_at} — one-time recovery
+--     codes shown to the instructor once at enrolment, bcrypt-hashed at rest
+--     exactly like password_hash; used_at is set the first time one is spent.
+--   - email_verify_token_hash/_expires_at: a single in-flight verification
+--     token per user (sha256 of the token mailed to them, never the token
+--     itself) — reused by both the original verification email and any
+--     resend, and cleared once consumed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_backup_codes jsonb NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token_hash char(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_expires_at timestamptz;
+
+-- One row per in-flight MFA challenge, created the moment a password check
+-- succeeds for an instructor and consumed (or left to expire) by
+-- /api/auth/mfa/verify. Keeping this server-side, rather than trusting a
+-- client-held token, is what lets a "setup" challenge safely carry the
+-- not-yet-saved TOTP secret: nothing is persisted onto the user row until
+-- the instructor proves they can already generate a matching code with it.
+CREATE TABLE IF NOT EXISTS mfa_challenges (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind varchar(10) NOT NULL CHECK (kind IN ('setup','login')),
+  secret text,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS mfa_challenges_user_idx ON mfa_challenges(user_id);
+CREATE INDEX IF NOT EXISTS mfa_challenges_expiry_idx ON mfa_challenges(expires_at);

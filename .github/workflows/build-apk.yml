@@ -35,8 +35,9 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
+        # The project now ships its own Gradle wrapper (pinned to 8.13 in
+        # gradle/wrapper/gradle-wrapper.properties), so ./gradlew drives the
+        # version; this action is kept for its build-cache/daemon setup.
 
       - name: Decode signing keystore
         working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
@@ -44,7 +45,7 @@ jobs:
 
       - name: Build signed release bundle (AAB)
         working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
-        run: gradle --no-daemon bundleRelease
+        run: ./gradlew --no-daemon bundleRelease
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}

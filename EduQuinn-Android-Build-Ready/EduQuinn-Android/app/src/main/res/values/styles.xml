@@ -6,4 +6,17 @@
         <item name="android:statusBarColor">@color/eduquinn_cream</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
+
+    <!--
+      Shown for the brief moment between the user tapping the launcher icon and the
+      first frame of MainActivity being drawn (cold start). Mirrors the web app's own
+      splash screen: cream background + the burgundy/gold EQ badge, centered.
+      androidx.core:core-splashscreen makes this behave consistently on API 24+, even
+      though the native platform SplashScreen API only exists from API 31.
+    -->
+    <style name="Theme.EduQuinn.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/eduquinn_cream</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_badge</item>
+        <item name="postSplashScreenTheme">@style/Theme.EduQuinn</item>
+    </style>
 </resources>

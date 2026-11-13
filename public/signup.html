@@ -36,17 +36,18 @@
           <option>Sales</option><option>Communication & Public Speaking</option>
           <option>Personal Development</option><option>Technical & Vocational Trades</option>
           <option>Other / Multidisciplinary</option></optgroup></select></label>
-      <label>Password<input id="password" type="password" required minlength="10" pattern="(?=.*[A-Za-z])(?=.*[0-9]).{10,}" title="At least 10 characters, including a letter and a number" autocomplete="new-password" placeholder="At least 10 characters, with a letter and a number"></label>
+      <label>Password<input id="password" type="password" required minlength="10" pattern="(?=.*[A-Za-z])(?=.*[0-9]).{10,}" title="At least 10 characters, including a letter and a number" autocomplete="new-password" placeholder="10+ chars, with a letter & number"></label>
       <label class="check">
   <input id="terms" type="checkbox" required>
 
   <span>
     I have read and agree to the
     <a
-      href="/instructor-policy.html"
+      id="termsLink"
+      href="/privacy-policy.html"
       target="_blank"
       rel="noopener">
-      EduQuinn Instructor Terms & Privacy Policy
+      <span id="termsLabel">EduQuinn Terms & Privacy Policy</span>
     </a>
   </span>
 </label>
@@ -61,10 +62,20 @@
   const expertiseSelect=document.getElementById('expertise');
   const errorBox=document.getElementById('authError');
   const btn=form?.querySelector('button[type="submit"]');
+  const termsLink=document.getElementById('termsLink');
+  const termsLabel=document.getElementById('termsLabel');
   if(!form||!nameInput||!emailInput||!passwordInput||!roleSelect||!expertiseWrap||!expertiseSelect||!errorBox||!btn){console.error('EduQuinn signup form is incomplete.');return;}
   const q=new URLSearchParams(location.search);
   if(['student','instructor'].includes(q.get('role'))) roleSelect.value=q.get('role');
-  const syncRole=()=>{expertiseWrap.hidden=roleSelect.value!=='instructor';expertiseSelect.required=roleSelect.value==='instructor';};
+  const syncRole=()=>{
+    const isInstructor=roleSelect.value==='instructor';
+    expertiseWrap.hidden=!isInstructor;
+    expertiseSelect.required=isInstructor;
+    if(termsLink&&termsLabel){
+      termsLink.href=isInstructor?'/instructor-policy.html':'/privacy-policy.html';
+      termsLabel.textContent=isInstructor?'EduQuinn Instructor Terms & Privacy Policy':'EduQuinn Terms & Privacy Policy';
+    }
+  };
   roleSelect.addEventListener('change',syncRole);syncRole();
   form.addEventListener('submit',async e=>{
     e.preventDefault();errorBox.textContent='';btn.disabled=true;btn.textContent='Creating account…';

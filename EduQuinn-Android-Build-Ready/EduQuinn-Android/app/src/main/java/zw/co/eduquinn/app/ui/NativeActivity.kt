@@ -35,8 +35,15 @@ import zw.co.eduquinn.app.ui.theme.EduQuinnTheme
  * landing on a native 404 — see [resolveNativeStartRoute].
  */
 class NativeActivity : ComponentActivity() {
-    @Volatile
-    private var uiReady = false
+    // Three independent latches, combined below: the branded splash stays
+    // up until the session check finishes AND at least MIN_SPLASH_MS has
+    // passed (so it reads as an intentional brand moment rather than a
+    // flicker on a fast connection), but never longer than MAX_SPLASH_MS
+    // even if the network call stalls — both bounds keep it inside the
+    // ~3-5s window this was asked to land in.
+    @Volatile private var sessionDone = false
+    @Volatile private var minTimeDone = false
+    @Volatile private var forceDone = false
     private var startRoute: String = Destinations.CATALOG
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,14 +51,12 @@ class NativeActivity : ComponentActivity() {
         // cream-background/badge splash MainActivity used to show on cold
         // start (Theme.EduQuinn.Starting in styles.xml), now bridging the
         // moment between tapping the icon and the first Compose frame
-        // instead of the WebView's first frame. Held open until the
-        // session refresh resolves (SessionManager.initialized flips true
-        // at essentially the same moment uiReady is set below), with the
-        // same 4s safety-net cap MainActivity used, in case the network
-        // call never completes.
+        // instead of the WebView's first frame.
         val splashScreen = SplashScreen.installSplashScreen(this)
-        splashScreen.setKeepOnScreenCondition { !uiReady }
-        Handler(Looper.getMainLooper()).postDelayed({ uiReady = true }, SPLASH_MAX_WAIT_MS)
+        splashScreen.setKeepOnScreenCondition { !((sessionDone && minTimeDone) || forceDone) }
+        val handler = Handler(Looper.getMainLooper())
+        handler.postDelayed({ minTimeDone = true }, MIN_SPLASH_MS)
+        handler.postDelayed({ forceDone = true }, MAX_SPLASH_MS)
 
         super.onCreate(savedInstanceState)
         val app = application as EduQuinnApplication
@@ -72,7 +77,7 @@ class NativeActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             app.services.authRepository.refreshSession()
-            uiReady = true
+            sessionDone = true
         }
 
         setContent {
@@ -90,7 +95,8 @@ class NativeActivity : ComponentActivity() {
     }
 
     private companion object {
-        const val SPLASH_MAX_WAIT_MS = 4000L
+        const val MIN_SPLASH_MS = 3200L
+        const val MAX_SPLASH_MS = 5000L
     }
 }
 

@@ -1,5 +1,5 @@
 (function(){
-  var MIN_MS=400,MAX_MS=2500,shown=Date.now();
+  var MIN_MS=3200,MAX_MS=5000,shown=Date.now();
   function hide(){
     var el=document.getElementById('appSplash');
     if(!el||el.dataset.hidden)return;

@@ -13,8 +13,12 @@ android {
         applicationId "zw.co.eduquinn.app"
         minSdk 24
         targetSdk 36
-        versionCode 3
-        versionName "1.1.0"
+        // Play Console rejects a re-upload of a versionCode it has already
+        // seen, even on a brand-new, never-published app - bump this every
+        // time you need to upload a new build, including just to replace a
+        // closed-testing release while chasing down a fix.
+        versionCode 4
+        versionName "1.2.0"
     }
 
     signingConfigs {

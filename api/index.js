@@ -202,6 +202,10 @@ function safeExt(name, mime = '') {
 }
 
 function cents(v) { return Math.max(0, Math.round(Number(v || 0))); }
+async function getTaxSettings() {
+  const r = await db.query('SELECT * FROM tax_settings WHERE id=1');
+  return r.rows[0] || { vat_percent: 15.5, vat_exempt_education_levels: [], withholding_percent: 10 };
+}
 async function couponFor(code, userId, subtotal) {
   code = String(code || '').trim().toUpperCase(); if (!code) return { code: null, discount: 0, coupon: null };
   const r = await db.query(`SELECT c.*,(SELECT count(*) FROM coupon_redemptions cr WHERE cr.coupon_id=c.id) used FROM coupons c WHERE upper(c.code)=upper($1) AND c.active=true AND (c.starts_at IS NULL OR c.starts_at<=now()) AND (c.ends_at IS NULL OR c.ends_at>=now())`, [code]);
@@ -737,7 +741,7 @@ async function handle(request) {
   }
   if (url.pathname === '/api/certificates/issue' && method === 'POST') { const u = await requireRole(request, ['student']); if (u instanceof Response) return u; try { const x = await readJson(request), courseId = String(x.courseId || ''); const e = await db.query('SELECT progress FROM enrolments WHERE student_id=$1 AND course_id=$2', [u.id, courseId]); if (!e.rowCount || Number(e.rows[0].progress) < 100) return json(409, { message: 'Complete all lessons before requesting a certificate.' }); const existing = await db.query('SELECT * FROM certificates WHERE student_id=$1 AND course_id=$2', [u.id, courseId]); if (existing.rowCount) return json(200, { certificate: existing.rows[0] }); const id = uuid(), code = 'EQ-CERT-' + new Date().getFullYear() + '-' + crypto.randomBytes(5).toString('hex').toUpperCase(); const r = await db.query('INSERT INTO certificates(id,certificate_code,student_id,course_id) VALUES($1,$2,$3,$4) RETURNING *', [id, code, u.id, courseId]); return json(201, { certificate: r.rows[0] }); } catch (e) { return dbFail(e); } }
 
-  if (url.pathname === '/api/commerce/config' && method === 'GET') { const paynowReady = !!process.env.PAYNOW_INTEGRATION_ID && !!process.env.PAYNOW_INTEGRATION_KEY; return json(200, { currency: 'USD', instructorSharePercent: INSTRUCTOR_SHARE_PERCENT, paymentSandbox: PAYMENT_SANDBOX, refundWindowDays: REFUND_WINDOW_DAYS, refundMaxProgressPercent: REFUND_MAX_PROGRESS_PERCENT, methods: [{ id: 'card', label: 'Visa / Mastercard (via Paynow)', configured: paynowReady }, { id: 'paynow', label: 'EcoCash / OneMoney (via Paynow)', configured: paynowReady }, { id: 'bank_transfer', label: 'Bank transfer', configured: true }] }); }
+  if (url.pathname === '/api/commerce/config' && method === 'GET') { try { const paynowReady = !!process.env.PAYNOW_INTEGRATION_ID && !!process.env.PAYNOW_INTEGRATION_KEY, tax = await getTaxSettings(); return json(200, { currency: 'USD', instructorSharePercent: INSTRUCTOR_SHARE_PERCENT, paymentSandbox: PAYMENT_SANDBOX, refundWindowDays: REFUND_WINDOW_DAYS, refundMaxProgressPercent: REFUND_MAX_PROGRESS_PERCENT, vatPercent: Number(tax.vat_percent || 0), vatExemptEducationLevels: tax.vat_exempt_education_levels || [], methods: [{ id: 'card', label: 'Visa / Mastercard (via Paynow)', configured: paynowReady }, { id: 'paynow', label: 'EcoCash / OneMoney (via Paynow)', configured: paynowReady }, { id: 'bank_transfer', label: 'Bank transfer', configured: true }] }); } catch (e) { return dbFail(e); } }
   if (url.pathname === '/api/coupons/validate' && method === 'POST') { const u = await requireRole(request, ['student']); if (u instanceof Response) return u; try { const x = await readJson(request), result = await couponFor(x.code, u.id, cents(x.subtotalCents)); if (result.error) return json(400, { message: result.error }); return json(200, { code: result.code, discountCents: result.discount }); } catch (e) { return dbFail(e); } }
   if (url.pathname === '/api/orders' && method === 'POST') {
     const u = await requireRole(request, ['student']); if (u instanceof Response) return u;
@@ -745,13 +749,24 @@ async function handle(request) {
       const x = await readJson(request), ids = Array.isArray(x.courseIds) ? [...new Set(x.courseIds.map(String).filter((v) => /^[0-9a-f-]{36}$/i.test(v)))] : [], method2 = String(x.paymentMethod || '');
       if (!ids.length) return json(400, { message: 'Select at least one database-backed course.' });
       if (!['card', 'paynow', 'bank_transfer'].includes(method2)) return json(400, { message: 'Select a supported payment method.' });
-      const q = await db.query(`SELECT id,title,price_cents,currency FROM courses WHERE id=ANY($1::uuid[]) AND status='published'`, [ids]);
+      const q = await db.query(`SELECT id,title,price_cents,currency,education_level FROM courses WHERE id=ANY($1::uuid[]) AND status='published'`, [ids]);
       if (q.rowCount !== ids.length) return json(400, { message: 'One or more courses are unavailable.' });
       const subtotal = q.rows.reduce((a, c) => a + Number(c.price_cents), 0), cp = await couponFor(x.couponCode, u.id, subtotal);
       if (cp.error) return json(400, { message: cp.error });
-      const discount = cp.discount || 0, total = Math.max(0, subtotal - discount), id = uuid(), status = total === 0 ? 'paid' : method2 === 'bank_transfer' ? 'awaiting_payment' : 'pending_gateway';
+      const discount = cp.discount || 0;
+      // VAT is computed per item against whatever's currently configured in
+      // tax_settings (see /api/admin/tax-settings), so an exemption added
+      // there later applies going forward without touching this code. The
+      // subtotal/discount/instructor-split math above and below is
+      // untouched by tax — it's purely an amount added on top that's owed
+      // to the tax authority, never split with the instructor.
+      const taxConfig = await getTaxSettings(), exemptLevels = new Set((taxConfig.vat_exempt_education_levels || []).map((v) => String(v).toLowerCase()));
+      const taxableSubtotal = q.rows.reduce((a, c) => a + (exemptLevels.has(String(c.education_level || '').toLowerCase()) ? 0 : Number(c.price_cents)), 0);
+      const taxableDiscount = subtotal > 0 ? Math.round(discount * (taxableSubtotal / subtotal)) : 0;
+      const taxCents = Math.max(0, Math.round((taxableSubtotal - taxableDiscount) * Number(taxConfig.vat_percent || 0) / 100));
+      const total = Math.max(0, subtotal - discount + taxCents), id = uuid(), status = total === 0 ? 'paid' : method2 === 'bank_transfer' ? 'awaiting_payment' : 'pending_gateway';
       await db.withTransaction(async (client) => {
-        await client.query(`INSERT INTO orders(id,student_id,status,payment_method,currency,total_cents,subtotal_cents,discount_cents,coupon_code) VALUES($1,$2,$3,$4,'USD',$5,$6,$7,$8)`, [id, u.id, status, method2, total, subtotal, discount, cp.code]);
+        await client.query(`INSERT INTO orders(id,student_id,status,payment_method,currency,total_cents,subtotal_cents,discount_cents,tax_cents,coupon_code) VALUES($1,$2,$3,$4,'USD',$5,$6,$7,$8,$9)`, [id, u.id, status, method2, total, subtotal, discount, taxCents, cp.code]);
         for (const c of q.rows) await client.query('INSERT INTO order_items(id,order_id,course_id,unit_price_cents) VALUES($1,$2,$3,$4)', [uuid(), id, c.id, c.price_cents]);
         if (cp.coupon) await client.query('INSERT INTO coupon_redemptions(coupon_id,user_id,order_id) VALUES($1,$2,$3)', [cp.coupon.id, u.id, id]);
         const txid = uuid(), provider = method2 === 'bank_transfer' ? 'manual_bank' : method2;
@@ -826,14 +841,50 @@ async function handle(request) {
       return json(201, { refundId: id, status: 'requested' });
     } catch (e) { return dbFail(e); }
   }
-  if (url.pathname === '/api/instructor/earnings' && method === 'GET') { const u = await requireRole(request, ['instructor', 'admin']); if (u instanceof Response) return u; try { const instructorId = u.role === 'admin' && url.searchParams.get('instructorId') ? url.searchParams.get('instructorId') : u.id; const sum = await db.query(`SELECT COALESCE(sum(instructor_cents) FILTER(WHERE ${AVAILABLE_EARNINGS_SQL}),0) available,COALESCE(sum(instructor_cents) FILTER(WHERE status='pending' AND available_at>now()),0) pending,COALESCE(sum(instructor_cents),0) lifetime,min(available_at) FILTER(WHERE status='pending' AND available_at>now()) next_release_at FROM instructor_earnings WHERE instructor_id=$1`, [instructorId]); const rows = await db.query(`SELECT e.*,c.title course_title,o.created_at order_date FROM instructor_earnings e JOIN courses c ON c.id=e.course_id JOIN orders o ON o.id=e.order_id WHERE e.instructor_id=$1 ORDER BY e.created_at DESC LIMIT 100`, [instructorId]); const payouts = await db.query('SELECT * FROM instructor_payouts WHERE instructor_id=$1 ORDER BY created_at DESC LIMIT 50', [instructorId]); return json(200, { summary: sum.rows[0], earnings: rows.rows, payouts: payouts.rows, sharePercent: INSTRUCTOR_SHARE_PERCENT, refundWindowDays: REFUND_WINDOW_DAYS, earningsHoldDays: EARNINGS_HOLD_DAYS }); } catch (e) { return dbFail(e); } }
+  if (url.pathname === '/api/instructor/earnings' && method === 'GET') {
+    const u = await requireRole(request, ['instructor', 'admin']); if (u instanceof Response) return u;
+    try {
+      const instructorId = u.role === 'admin' && url.searchParams.get('instructorId') ? url.searchParams.get('instructorId') : u.id;
+      const [sum, rows, payouts, instructor, taxConfig] = await Promise.all([
+        db.query(`SELECT COALESCE(sum(instructor_cents) FILTER(WHERE ${AVAILABLE_EARNINGS_SQL}),0) available,COALESCE(sum(instructor_cents) FILTER(WHERE status='pending' AND available_at>now()),0) pending,COALESCE(sum(instructor_cents),0) lifetime,min(available_at) FILTER(WHERE status='pending' AND available_at>now()) next_release_at FROM instructor_earnings WHERE instructor_id=$1`, [instructorId]),
+        db.query(`SELECT e.*,c.title course_title,o.created_at order_date FROM instructor_earnings e JOIN courses c ON c.id=e.course_id JOIN orders o ON o.id=e.order_id WHERE e.instructor_id=$1 ORDER BY e.created_at DESC LIMIT 100`, [instructorId]),
+        db.query('SELECT * FROM instructor_payouts WHERE instructor_id=$1 ORDER BY created_at DESC LIMIT 50', [instructorId]),
+        db.query('SELECT tax_clearance_number,tax_clearance_expires_at FROM users WHERE id=$1', [instructorId]),
+        getTaxSettings(),
+      ]);
+      const taxCleared = !!(instructor.rows[0]?.tax_clearance_expires_at && new Date(instructor.rows[0].tax_clearance_expires_at) >= new Date(new Date().toISOString().slice(0, 10)));
+      return json(200, { summary: sum.rows[0], earnings: rows.rows, payouts: payouts.rows, sharePercent: INSTRUCTOR_SHARE_PERCENT, refundWindowDays: REFUND_WINDOW_DAYS, earningsHoldDays: EARNINGS_HOLD_DAYS, taxClearance: { ...instructor.rows[0], cleared: taxCleared }, withholdingPercent: Number(taxConfig.withholding_percent || 0) });
+    } catch (e) { return dbFail(e); }
+  }
   if (url.pathname === '/api/admin/orders' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT o.*,u.name student_name,u.email student_email,(SELECT count(*) FROM refunds f WHERE f.order_id=o.id AND f.status='requested') refund_requests FROM orders o JOIN users u ON u.id=o.student_id ORDER BY o.created_at DESC LIMIT 500`); return json(200, { orders: r.rows }); } catch (e) { return dbFail(e); } }
   const approveRefund = url.pathname.match(/^\/api\/admin\/refunds\/([0-9a-f-]{36})\/(approve|reject)$/i);
   if (approveRefund && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query('SELECT * FROM refunds WHERE id=$1', [approveRefund[1]]); if (!r.rowCount) return json(404, { message: 'Refund not found.' }); const action = approveRefund[2], x = await readJson(request); if (action === 'reject') { await db.query("UPDATE refunds SET status='rejected',admin_note=$2,resolved_at=now() WHERE id=$1", [approveRefund[1], String(x.note || '')]); await db.query("UPDATE orders SET status='paid',updated_at=now() WHERE id=$1", [r.rows[0].order_id]); } else { await db.query("UPDATE refunds SET status='processed',admin_note=$2,resolved_at=now() WHERE id=$1", [approveRefund[1], String(x.note || '')]); await db.query("UPDATE orders SET status='refunded',updated_at=now() WHERE id=$1", [r.rows[0].order_id]); await db.query("UPDATE instructor_earnings SET status='reversed' WHERE order_id=$1 AND status<>'paid'", [r.rows[0].order_id]); } await audit(u, 'refund.' + (action === 'approve' ? 'processed' : 'rejected'), 'order', r.rows[0].order_id, {}); return json(200, { ok: true }); } catch (e) { return dbFail(e); } }
   if (url.pathname === '/api/admin/refunds' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT f.*,o.student_id,o.total_cents,u.name student_name,u.email student_email FROM refunds f JOIN orders o ON o.id=f.order_id LEFT JOIN users u ON u.id=o.student_id ORDER BY f.created_at DESC LIMIT 300`); return json(200, { refunds: r.rows }); } catch (e) { return dbFail(e); } }
   const markPaid = url.pathname.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/mark-paid$/i);
   if (markPaid && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), order = await markOrderPaid(markPaid[1], String(x.reference || 'MANUAL-' + Date.now())); await audit(u, 'payment.confirmed', 'order', markPaid[1], { reference: x.reference || null }); return json(200, { order }); } catch (e) { return e.status ? json(e.status, { message: e.message }) : dbFail(e); } }
-  if (url.pathname === '/api/admin/payouts/approve' && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), instructorId = String(x.instructorId || ''); if (!/^[0-9a-f-]{36}$/i.test(instructorId)) return json(400, { message: 'A valid instructor is required.' }); const available = await db.query(`SELECT COALESCE(sum(instructor_cents),0) total,min(created_at)::date period_start,max(created_at)::date period_end FROM instructor_earnings WHERE instructor_id=$1 AND payout_id IS NULL AND ${AVAILABLE_EARNINGS_SQL}`, [instructorId]); const amount = Number(available.rows[0].total || 0); if (amount <= 0) return json(409, { message: "This instructor has no earnings past EduQuinn's refund-safe hold period yet." }); const id = uuid(), ref = 'EQ-PAYOUT-' + Date.now().toString().slice(-10); await db.query("INSERT INTO instructor_payouts(id,instructor_id,amount_cents,currency,status,reference,period_start,period_end,paid_at) VALUES($1,$2,$3,'USD','paid',$4,$5,$6,now())", [id, instructorId, amount, ref, available.rows[0].period_start, available.rows[0].period_end]); await db.query(`UPDATE instructor_earnings SET status='paid',payout_id=$1 WHERE instructor_id=$2 AND payout_id IS NULL AND ${AVAILABLE_EARNINGS_SQL}`, [id, instructorId]); await audit(u, 'payout.approved', 'user', instructorId, { payoutId: id, amountCents: amount }); return json(201, { payout: { id, reference: ref, amountCents: amount, status: 'paid' } }); } catch (e) { return dbFail(e); } }
+  if (url.pathname === '/api/admin/payouts/approve' && method === 'POST') {
+    const u = await requireRole(request, ['admin']); if (u instanceof Response) return u;
+    try {
+      const x = await readJson(request), instructorId = String(x.instructorId || '');
+      if (!/^[0-9a-f-]{36}$/i.test(instructorId)) return json(400, { message: 'A valid instructor is required.' });
+      const available = await db.query(`SELECT COALESCE(sum(instructor_cents),0) total,min(created_at)::date period_start,max(created_at)::date period_end FROM instructor_earnings WHERE instructor_id=$1 AND payout_id IS NULL AND ${AVAILABLE_EARNINGS_SQL}`, [instructorId]);
+      const gross = Number(available.rows[0].total || 0);
+      if (gross <= 0) return json(409, { message: "This instructor has no earnings past EduQuinn's refund-safe hold period yet." });
+      // Withholding is based on the instructor's CURRENT tax clearance
+      // status at the moment of payout, not whatever it was when each
+      // sale happened — a certificate obtained (or one that expired)
+      // since then applies to the whole balance being paid out now.
+      const [instructor, taxConfig] = await Promise.all([db.query('SELECT tax_clearance_expires_at FROM users WHERE id=$1', [instructorId]), getTaxSettings()]);
+      const cleared = instructor.rows[0]?.tax_clearance_expires_at && new Date(instructor.rows[0].tax_clearance_expires_at) >= new Date(new Date().toISOString().slice(0, 10));
+      const withheld = cleared ? 0 : Math.round((gross * Number(taxConfig.withholding_percent || 0)) / 100);
+      const net = gross - withheld;
+      const id = uuid(), ref = 'EQ-PAYOUT-' + Date.now().toString().slice(-10);
+      await db.query("INSERT INTO instructor_payouts(id,instructor_id,amount_cents,gross_cents,withholding_cents,currency,status,reference,period_start,period_end,paid_at) VALUES($1,$2,$3,$4,$5,'USD','paid',$6,$7,$8,now())", [id, instructorId, net, gross, withheld, ref, available.rows[0].period_start, available.rows[0].period_end]);
+      await db.query(`UPDATE instructor_earnings SET status='paid',payout_id=$1 WHERE instructor_id=$2 AND payout_id IS NULL AND ${AVAILABLE_EARNINGS_SQL}`, [id, instructorId]);
+      await audit(u, 'payout.approved', 'user', instructorId, { payoutId: id, grossCents: gross, withholdingCents: withheld, netCents: net });
+      return json(201, { payout: { id, reference: ref, amountCents: net, grossCents: gross, withholdingCents: withheld, status: 'paid' } });
+    } catch (e) { return dbFail(e); }
+  }
   if (url.pathname === '/api/admin/coupons' && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), code = String(x.code || '').trim().toUpperCase(); if (!/^[A-Z0-9_-]{3,30}$/.test(code)) return json(400, { message: 'Use a coupon code of 3–30 letters, numbers, _ or -.' }); const type = x.discountType === 'fixed' ? 'fixed' : 'percent', value = type === 'percent' ? Math.min(100, Math.max(1, Number(x.discountValue || 0))) : Math.max(1, Number(x.discountValue || 0)); const id = uuid(); await db.query('INSERT INTO coupons(id,code,description,discount_type,discount_value,max_redemptions,created_by,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [id, code, String(x.description || ''), type, Math.round(value), x.maxRedemptions ? Number(x.maxRedemptions) : null, u.id, x.endsAt || null]); await audit(u, 'coupon.created', 'coupon', id, { code }); return json(201, { id, code }); } catch (e) { return dbFail(e); } }
   if (url.pathname === '/api/admin/coupons' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT c.*,(SELECT count(*) FROM coupon_redemptions cr WHERE cr.coupon_id=c.id) used FROM coupons c ORDER BY c.created_at DESC LIMIT 300`); return json(200, { coupons: r.rows }); } catch (e) { return dbFail(e); } }
   const toggleCoupon = url.pathname.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})\/(activate|deactivate)$/i);
@@ -945,11 +996,54 @@ async function handle(request) {
     const u = await requireRole(request, ['admin']); if (u instanceof Response) return u;
     try { const x = await readJson(request), status = ['prelaunch', 'live', 'maintenance'].includes(x.status) ? x.status : 'prelaunch', registrations = !!x.registrationsOpen, instructors = !!x.instructorApplicationsOpen, verify = x.publicCertificateVerification !== false, message = String(x.launchMessage || '').trim().slice(0, 300) || 'EduQuinn is preparing for launch.'; const r = await db.query(`UPDATE platform_launch_state SET status=$1,registrations_open=$2,instructor_applications_open=$3,public_certificate_verification=$4,launch_message=$5,launched_at=CASE WHEN $1='live' THEN COALESCE(launched_at,now()) ELSE launched_at END,updated_by=$6,updated_at=now() WHERE id=1 RETURNING *`, [status, registrations, instructors, verify, message, u.id]); await audit(u, 'platform.launch_state_updated', 'platform', '1', { status, registrationsOpen: registrations, instructorApplicationsOpen: instructors, publicCertificateVerification: verify }); return json(200, { platform: r.rows[0] }); } catch (e) { return dbFail(e); }
   }
+  // Phase 20 tax configuration — see the note in db/schema.sql. vat_percent
+  // and withholding_percent are admin-editable here rather than fixed env
+  // vars, since tax rates/exemptions are the kind of thing that can change
+  // without a redeploy, and EduQuinn's operator (not this code) is the one
+  // who should be deciding them, ideally with an accountant's input.
+  if (url.pathname === '/api/admin/tax-settings' && method === 'GET') {
+    const u = await requireRole(request, ['admin']); if (u instanceof Response) return u;
+    try { const r = await db.query('SELECT * FROM tax_settings WHERE id=1'); return json(200, { settings: r.rows[0] }); } catch (e) { return dbFail(e); }
+  }
+  if (url.pathname === '/api/admin/tax-settings' && method === 'POST') {
+    const u = await requireRole(request, ['admin']); if (u instanceof Response) return u;
+    try {
+      const x = await readJson(request), vatPercent = Math.max(0, Math.min(100, Number(x.vatPercent))), withholdingPercent = Math.max(0, Math.min(100, Number(x.withholdingPercent)));
+      if (!Number.isFinite(vatPercent) || !Number.isFinite(withholdingPercent)) return json(400, { message: 'Enter valid percentages for VAT and withholding tax.' });
+      const exemptLevels = Array.isArray(x.vatExemptEducationLevels) ? [...new Set(x.vatExemptEducationLevels.map((v) => String(v).toLowerCase().trim()).filter(Boolean))].slice(0, 20) : [];
+      const r = await db.query('UPDATE tax_settings SET vat_percent=$1,vat_exempt_education_levels=$2::jsonb,withholding_percent=$3,updated_by=$4,updated_at=now() WHERE id=1 RETURNING *', [vatPercent, JSON.stringify(exemptLevels), withholdingPercent, u.id]);
+      await audit(u, 'tax_settings.updated', 'tax_settings', '1', { vatPercent, withholdingPercent, vatExemptEducationLevels: exemptLevels });
+      return json(200, { settings: r.rows[0] });
+    } catch (e) { return dbFail(e); }
+  }
+  const taxClearance = url.pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/tax-clearance$/i);
+  if (taxClearance && method === 'POST') {
+    const u = await requireRole(request, ['admin']); if (u instanceof Response) return u;
+    try {
+      const x = await readJson(request), number = String(x.taxClearanceNumber || '').trim().slice(0, 60) || null, expiresAt = x.taxClearanceExpiresAt ? String(x.taxClearanceExpiresAt).slice(0, 10) : null;
+      if (expiresAt && Number.isNaN(new Date(expiresAt).getTime())) return json(400, { message: 'Enter a valid expiry date.' });
+      const r = await db.query('UPDATE users SET tax_clearance_number=$2,tax_clearance_expires_at=$3,updated_at=now() WHERE id=$1 RETURNING id,name,tax_clearance_number,tax_clearance_expires_at', [taxClearance[1], number, expiresAt]);
+      if (!r.rowCount) return json(404, { message: 'User not found.' });
+      await audit(u, 'user.tax_clearance_updated', 'user', taxClearance[1], { hasNumber: !!number, expiresAt });
+      return json(200, { user: r.rows[0] });
+    } catch (e) { return dbFail(e); }
+  }
   if (url.pathname === '/api/support' && method === 'POST') return receiveSupport(request);
   if (url.pathname === '/api/admin/courses' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT c.id,c.title,c.category,c.education_level,c.price_cents,c.status,c.quality_score,c.created_at,c.updated_at,i.name instructor_name,i.email instructor_email FROM courses c LEFT JOIN users i ON i.id=c.instructor_id ORDER BY c.updated_at DESC LIMIT 500`); return json(200, { courses: r.rows }); } catch (e) { return dbFail(e); } }
   const adminCourseStatus = url.pathname.match(/^\/api\/admin\/courses\/([0-9a-f-]{36})\/status$/i);
   if (adminCourseStatus && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), status = String(x.status || ''); if (!['draft', 'under_review', 'changes_requested', 'published', 'suspended', 'archived'].includes(status)) return json(400, { message: 'Invalid course status.' }); const q = await db.query('UPDATE courses SET status=$2,updated_at=now() WHERE id=$1 RETURNING id,title,status', [adminCourseStatus[1], status]); if (!q.rowCount) return json(404, { message: 'Course not found.' }); await audit(u, 'course.status_updated', 'course', adminCourseStatus[1], { status }); return json(200, { course: q.rows[0] }); } catch (e) { return dbFail(e); } }
-  if (url.pathname === '/api/admin/payouts' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT i.id instructor_id,i.name,i.email,COALESCE(sum(e.gross_cents),0)::bigint gross_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='available' OR (e.status='pending' AND e.available_at<=now())),0)::bigint available_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='pending' AND e.available_at>now()),0)::bigint pending_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='paid'),0)::bigint paid_cents FROM users i LEFT JOIN instructor_earnings e ON e.instructor_id=i.id WHERE i.role='instructor' GROUP BY i.id,i.name,i.email ORDER BY available_cents DESC,i.name`); return json(200, { payouts: r.rows, refundWindowDays: REFUND_WINDOW_DAYS, earningsHoldDays: EARNINGS_HOLD_DAYS }); } catch (e) { return dbFail(e); } }
+  if (url.pathname === '/api/admin/payouts' && method === 'GET') {
+    const u = await requireRole(request, ['admin']); if (u instanceof Response) return u;
+    try {
+      const [r, taxConfig] = await Promise.all([
+        db.query(`SELECT i.id instructor_id,i.name,i.email,i.tax_clearance_expires_at,COALESCE(sum(e.gross_cents),0)::bigint gross_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='available' OR (e.status='pending' AND e.available_at<=now())),0)::bigint available_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='pending' AND e.available_at>now()),0)::bigint pending_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='paid'),0)::bigint paid_cents FROM users i LEFT JOIN instructor_earnings e ON e.instructor_id=i.id WHERE i.role='instructor' GROUP BY i.id,i.name,i.email,i.tax_clearance_expires_at ORDER BY available_cents DESC,i.name`),
+        getTaxSettings(),
+      ]);
+      const today = new Date().toISOString().slice(0, 10), withholdingPercent = Number(taxConfig.withholding_percent || 0);
+      const payouts = r.rows.map((p) => { const cleared = !!(p.tax_clearance_expires_at && new Date(p.tax_clearance_expires_at) >= new Date(today)); return { ...p, taxCleared: cleared, estimatedWithholdingCents: cleared ? 0 : Math.round((Number(p.available_cents) * withholdingPercent) / 100) }; });
+      return json(200, { payouts, refundWindowDays: REFUND_WINDOW_DAYS, earningsHoldDays: EARNINGS_HOLD_DAYS, withholdingPercent });
+    } catch (e) { return dbFail(e); }
+  }
   if (url.pathname === '/api/admin/reviews' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT r.id,r.rating,r.review,r.status,r.created_at,s.name student_name,c.title course_title FROM reviews r JOIN users s ON s.id=r.student_id JOIN courses c ON c.id=r.course_id ORDER BY r.created_at DESC LIMIT 500`); return json(200, { reviews: r.rows }); } catch (e) { return dbFail(e); } }
   if (url.pathname === '/api/admin/users' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query('SELECT id,name,email,role,status,expertise,email_verified,created_at FROM users ORDER BY created_at DESC LIMIT 500'); return json(200, { users: r.rows }); } catch (e) { return dbFail(e); } }
   const adminUserStatus = url.pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/status$/i);
@@ -984,7 +1078,7 @@ async function handle(request) {
   if (adminUserProfile && method === 'GET') {
     const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; const targetId = adminUserProfile[1];
     try {
-      const target = await db.query('SELECT id,name,email,role,status,expertise,email_verified,created_at,updated_at FROM users WHERE id=$1', [targetId]); if (!target.rowCount) return json(404, { message: 'User not found.' });
+      const target = await db.query('SELECT id,name,email,role,status,expertise,email_verified,tax_clearance_number,tax_clearance_expires_at,created_at,updated_at FROM users WHERE id=$1', [targetId]); if (!target.rowCount) return json(404, { message: 'User not found.' });
       const [enrolments, orders, refunds, notes, activity, instructorCourses, instructorEarnings] = await Promise.all([
         db.query(`SELECT e.course_id,e.progress,e.enrolled_at,e.completed_at,c.title course_title,c.category,c.price_cents FROM enrolments e JOIN courses c ON c.id=e.course_id WHERE e.student_id=$1 ORDER BY e.enrolled_at DESC`, [targetId]),
         db.query(`SELECT o.id,o.status,o.payment_method,o.currency,o.total_cents,o.created_at,o.paid_at,COALESCE((SELECT json_agg(json_build_object('courseId',oi.course_id,'title',c.title,'unitPriceCents',oi.unit_price_cents)) FROM order_items oi JOIN courses c ON c.id=oi.course_id WHERE oi.order_id=o.id),'[]'::json) items FROM orders o WHERE o.student_id=$1 ORDER BY o.created_at DESC LIMIT 200`, [targetId]),

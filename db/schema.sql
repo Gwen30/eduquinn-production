@@ -543,3 +543,42 @@ CREATE INDEX IF NOT EXISTS mfa_challenges_expiry_idx ON mfa_challenges(expires_a
 --     the cron having run yet.
 ALTER TABLE instructor_earnings ADD COLUMN IF NOT EXISTS available_at timestamptz NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS instructor_earnings_available_idx ON instructor_earnings(status, available_at);
+
+-- Phase 20 tax configuration for payments.
+--   - VAT on course sales: Zimbabwe's standard VAT rate is 15.5% as of
+--     1 January 2026 (confirmed on ZIMRA's own site, which exempts
+--     "educational and training services" only for preschool through
+--     secondary school — tertiary/professional/business courses are not
+--     clearly covered). Defaulting to taxing everything, with an
+--     admin-configurable per-education-level exemption list for when
+--     that's confirmed with an accountant, rather than hardcoding a
+--     judgment call about what's exempt. Tax is charged as a separate
+--     line on top of the listed course price (tax-exclusive), stored on
+--     orders.tax_cents, and never changes the subtotal that the
+--     instructor/platform split is calculated from.
+--   - Withholding on instructor payouts: Zimbabwe generally requires a
+--     payer to withhold tax (commonly 10%) from a supplier who has not
+--     furnished a valid ZIMRA tax clearance certificate. Modeled
+--     per-instructor (tax_clearance_expires_at on users) rather than as a
+--     single global toggle, since it genuinely depends on each
+--     instructor's own status, and is applied at payout-approval time
+--     (see /api/admin/payouts/approve) using whichever status is current
+--     then, not whatever it was when the sale happened.
+--   None of this is legal or tax advice — EduQuinn's operator should
+--   confirm both rates, and what's actually exempt, with a qualified
+--   Zimbabwean accountant before relying on the defaults below.
+CREATE TABLE IF NOT EXISTS tax_settings (
+  id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  vat_percent numeric(5,2) NOT NULL DEFAULT 15.50 CHECK (vat_percent BETWEEN 0 AND 100),
+  vat_exempt_education_levels jsonb NOT NULL DEFAULT '[]'::jsonb,
+  withholding_percent numeric(5,2) NOT NULL DEFAULT 10.00 CHECK (withholding_percent BETWEEN 0 AND 100),
+  updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO tax_settings(id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE instructor_payouts ADD COLUMN IF NOT EXISTS gross_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE instructor_payouts ADD COLUMN IF NOT EXISTS withholding_cents integer NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tax_clearance_number varchar(60);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tax_clearance_expires_at date;

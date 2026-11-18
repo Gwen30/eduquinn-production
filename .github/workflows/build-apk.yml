@@ -39,6 +39,18 @@ jobs:
         # gradle/wrapper/gradle-wrapper.properties), so ./gradlew drives the
         # version; this action is kept for its build-cache/daemon setup.
 
+      - name: Make gradlew executable
+        # gradlew is committed with the executable bit set (100755), but
+        # that bit doesn't survive every path a commit can take before it
+        # reaches this checkout - a Windows git client, a patch applied
+        # with `git apply` instead of `git am`, or a manual re-save can all
+        # silently flip it back to 100644, which fails here with "Permission
+        # denied" (exit 126) rather than anywhere closer to the cause. Doing
+        # this unconditionally means the build never depends on whatever the
+        # tracked mode happens to be by the time it's pushed.
+        working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
+        run: chmod +x gradlew
+
       - name: Decode signing keystore
         working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.jks

@@ -33,6 +33,12 @@ interface ApiService {
     @POST("api/auth/logout")
     suspend fun logout()
 
+    @POST("api/auth/mfa/verify")
+    suspend fun verifyMfa(@Body body: MfaVerifyRequest): AuthResponse
+
+    @POST("api/auth/resend-verification")
+    suspend fun resendVerification(@Body body: ResendVerificationRequest)
+
     // --- Catalog ---
     @GET("api/courses")
     suspend fun courses(@Query("level") level: String? = null): CoursesResponse

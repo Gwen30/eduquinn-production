@@ -29,12 +29,23 @@ module.exports = {
         "DELETE FROM security_events WHERE created_at < now() - interval '180 days'"
       );
       const prunedRateLimits = await pruneRateLimits();
+      // Flip matured instructor_earnings rows from 'pending' to 'available'
+      // now that their refund-safe hold (see Phase 19 in db/schema.sql) has
+      // passed. Every query that sums "available" earnings already treats
+      // a still-pending-but-matured row as available on its own, so this
+      // is only here to keep the stored status column — which admin.js and
+      // the instructor payouts page both display directly — accurate,
+      // rather than leaving it stuck on "pending" forever.
+      const releasedEarnings = await db.query(
+        "UPDATE instructor_earnings SET status='available' WHERE status='pending' AND available_at<=now()"
+      );
       return new Response(
         JSON.stringify({
           ok: true,
           expiredSessionsDeleted: expiredSessions.rowCount,
           oldSecurityEventsDeleted: oldSecurityEvents.rowCount,
           rateLimitRowsPruned: prunedRateLimits,
+          earningsReleased: releasedEarnings.rowCount,
         }),
         { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } }
       );

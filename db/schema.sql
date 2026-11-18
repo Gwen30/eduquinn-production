@@ -526,3 +526,20 @@ CREATE TABLE IF NOT EXISTS mfa_challenges (
 );
 CREATE INDEX IF NOT EXISTS mfa_challenges_user_idx ON mfa_challenges(user_id);
 CREATE INDEX IF NOT EXISTS mfa_challenges_expiry_idx ON mfa_challenges(expires_at);
+
+-- Phase 19 refund policy + payout-safe earnings hold.
+--   - instructor_earnings now starts every row in status='pending' with
+--     available_at set EARNINGS_HOLD_DAYS ahead of creation (see
+--     markOrderPaid in api/index.js), instead of landing in 'available'
+--     the instant an order is paid. That hold is deliberately set to
+--     outlast the self-service refund window (REFUND_WINDOW_DAYS), so a
+--     student's refund request always lands while the matching earnings
+--     row can still be reversed, instead of having to be clawed back from
+--     an instructor after the platform already paid them out.
+--   - The daily cron (api/cron/maintenance.js) flips 'pending' rows to
+--     'available' once available_at has passed; every query that sums
+--     "available" earnings also treats status='pending' AND
+--     available_at<=now() as available, so correctness never depends on
+--     the cron having run yet.
+ALTER TABLE instructor_earnings ADD COLUMN IF NOT EXISTS available_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS instructor_earnings_available_idx ON instructor_earnings(status, available_at);

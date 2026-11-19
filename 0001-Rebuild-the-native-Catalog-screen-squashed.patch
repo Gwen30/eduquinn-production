@@ -1,0 +1,798 @@
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+index e98b9e0..739b2bb 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+@@ -17,8 +17,8 @@ android {
+         // seen, even on a brand-new, never-published app - bump this every
+         // time you need to upload a new build, including just to replace a
+         // closed-testing release while chasing down a fix.
+-        versionCode 4
+-        versionName "1.2.0"
++        versionCode 6
++        versionName "1.3.0"
+     }
+ 
+     signingConfigs {
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/AndroidManifest.xml b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/AndroidManifest.xml
+index 51aa20a..851de8d 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/AndroidManifest.xml
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/AndroidManifest.xml
+@@ -13,13 +13,13 @@
+         android:theme="@style/Theme.EduQuinn">
+ 
+         <!--
+-          Fallback target for anything outside the native v1 scope (live
++          Fallback target for anything outside the native scope (live
+           classes, messaging, notifications, instructor/admin areas,
+-          purchase history) — kept exactly as before. NativeActivity now
+-          owns the launcher role and the App Links intent-filter; it
+-          forwards any URI it doesn't recognize here unchanged
+-          (see NativeActivity.resolveNativeStartRoute), so this activity's
+-          own WebView deep-link interception, offline fallback, and
++          purchase history) — NativeActivity owns the launcher role and
++          the App Links intent-filter below; it forwards any URI it
++          doesn't recognize here unchanged (see
++          NativeActivity.resolveNativeStartRoute), so this activity's own
++          WebView deep-link interception, offline fallback, and
+           file-chooser handling still see exactly the same kind of intents
+           they always did.
+         -->
+@@ -29,6 +29,13 @@
+             android:theme="@style/Theme.EduQuinn"
+             android:screenOrientation="unspecified" />
+ 
++        <!--
++          Launcher and App Links target. The native Catalog screen is
++          being redesigned to visually match the website (hero, stats,
++          categories, course cards) rather than falling back to a WebView
++          of the site, so this stays the real entry point rather than a
++          browser view.
++        -->
+         <activity
+             android:name=".ui.NativeActivity"
+             android:exported="true"
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+index a6b6cad..d73e6a9 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+@@ -81,7 +81,12 @@ class NativeActivity : ComponentActivity() {
+         }
+ 
+         setContent {
+-            EduQuinnTheme {
++            // Forced light, not isSystemInDarkTheme()'s default: the
++            // website has exactly one look (it has no dark mode), and the
++            // app is meant to match it, not diverge into a near-black
++            // Material scheme whenever the phone happens to be in system
++            // dark mode.
++            EduQuinnTheme(darkTheme = false) {
+                 Surface(modifier = Modifier.fillMaxSize()) {
+                     val initialized by SessionManager.initialized.collectAsState()
+                     if (initialized) {
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/CategoryIcons.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/CategoryIcons.kt
+new file mode 100644
+index 0000000..f02ba11
+--- /dev/null
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/CategoryIcons.kt
+@@ -0,0 +1,76 @@
++package zw.co.eduquinn.app.ui.components
++
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.BarChart
++import androidx.compose.material.icons.filled.Campaign
++import androidx.compose.material.icons.filled.Code
++import androidx.compose.material.icons.filled.Computer
++import androidx.compose.material.icons.filled.Eco
++import androidx.compose.material.icons.filled.MenuBook
++import androidx.compose.material.icons.filled.Palette
++import androidx.compose.material.icons.filled.School
++import androidx.compose.material.icons.filled.Work
++import androidx.compose.ui.graphics.vector.ImageVector
++
++/** One category pill, mirroring public/app.js's `categories` array exactly (icon key, label). */
++data class CategoryOption(val iconKey: String, val label: String)
++
++val CATALOG_CATEGORIES = listOf(
++    CategoryOption("code", "Development"),
++    CategoryOption("briefcase", "Business"),
++    CategoryOption("palette", "Design"),
++    CategoryOption("megaphone", "Marketing"),
++    CategoryOption("monitor", "IT & Software"),
++    CategoryOption("leaf", "Personal Growth"),
++    CategoryOption("chart", "Finance"),
++    CategoryOption("teacher", "Teaching"),
++)
++
++/** One education-stage card, mirroring public/app.js's `educationStages` array (value, label). */
++data class StageOption(val value: String, val label: String)
++
++val CATALOG_STAGES = listOf(
++    StageOption("primary", "Primary"),
++    StageOption("secondary", "Secondary"),
++    StageOption("a-level", "A-Level"),
++    StageOption("tertiary", "Tertiary"),
++    StageOption("professional", "Professional"),
++)
++
++/** Direct icon-key -> icon, used by the fixed category pills (not a guess, unlike [courseIcon]). */
++fun pillIcon(iconKey: String): ImageVector = when (iconKey) {
++    "code" -> Icons.Filled.Code
++    "briefcase" -> Icons.Filled.Work
++    "palette" -> Icons.Filled.Palette
++    "megaphone" -> Icons.Filled.Campaign
++    "monitor" -> Icons.Filled.Computer
++    "leaf" -> Icons.Filled.Eco
++    "chart" -> Icons.Filled.BarChart
++    "teacher" -> Icons.Filled.School
++    else -> Icons.Filled.School
++}
++
++/**
++ * A stage's icon: tertiary gets a graduation cap, every other stage a book —
++ * ports app.js's `iconSvg(v==='tertiary'?'graduation':'book')` exactly.
++ */
++fun stageIcon(value: String): ImageVector = if (value == "tertiary") Icons.Filled.School else Icons.Filled.MenuBook
++
++/**
++ * Course-card badge icon, guessed from the course's own free-text category
++ * field — ports app.js's `iconFor(c)` exactly: same substring checks, same
++ * order, same fallback (web's "graduation" default, here the School icon).
++ * There is no thumbnail/cover image anywhere in the API (see CourseCard.kt),
++ * so this icon badge is the actual course "image" on both web and native.
++ */
++fun courseIcon(category: String?): ImageVector {
++    val v = category.orEmpty().lowercase()
++    return when {
++        "design" in v -> Icons.Filled.Palette
++        "business" in v || "finance" in v -> Icons.Filled.Work
++        "marketing" in v -> Icons.Filled.Campaign
++        "teach" in v || "education" in v -> Icons.Filled.MenuBook
++        "development" in v || "software" in v || "computer" in v -> Icons.Filled.Code
++        else -> Icons.Filled.School
++    }
++}
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/CourseCard.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/CourseCard.kt
+index f25d4d7..09bd73f 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/CourseCard.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/CourseCard.kt
+@@ -18,6 +18,7 @@ import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+@@ -30,16 +31,20 @@ import zw.co.eduquinn.app.data.model.Course
+ /**
+  * The courses endpoints (api/index.js) return no thumbnail/cover image —
+  * the schema only has course_assets rows (kind='thumbnail') that are never
+- * joined back into /api/courses or /api/courses/:id. So this card leans
+- * on a branded color block + initials instead of a photo, rather than
+- * wiring up an image loader against a URL that doesn't exist.
++ * joined back into /api/courses or /api/courses/:id. The website's own
++ * cards lean on a category icon badge instead of a photo for exactly this
++ * reason (see app.js's iconFor()); courseIcon() in CategoryIcons.kt ports
++ * that same mapping rather than wiring up an image loader against a URL
++ * that doesn't exist.
+  */
+ @Composable
+ fun CourseCard(
+     course: Course,
+     isWishlisted: Boolean,
++    isInCart: Boolean,
+     onClick: () -> Unit,
+     onToggleWishlist: () -> Unit,
++    onAddToCart: () -> Unit,
+     modifier: Modifier = Modifier,
+ ) {
+     Card(
+@@ -53,11 +58,11 @@ fun CourseCard(
+                 .height(96.dp)
+                 .background(MaterialTheme.colorScheme.primary),
+         ) {
+-            Text(
+-                text = initialsFor(course.title),
+-                color = MaterialTheme.colorScheme.onPrimary,
+-                style = MaterialTheme.typography.headlineMedium,
+-                modifier = Modifier.align(Alignment.Center),
++            Icon(
++                courseIcon(course.category),
++                contentDescription = null,
++                tint = MaterialTheme.colorScheme.onPrimary,
++                modifier = Modifier.size(40.dp).align(Alignment.Center),
+             )
+             IconButton(onClick = onToggleWishlist, modifier = Modifier.align(Alignment.TopEnd)) {
+                 Icon(
+@@ -85,17 +90,31 @@ fun CourseCard(
+             course.instructorName?.let {
+                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+             }
+-            Spacer(Modifier.size(8.dp))
++            Spacer(Modifier.size(6.dp))
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                RatingStars(course.rating, course.reviewCount)
++                // Mirrors the web card's meta line ("4.8 ★ · 312 students") —
++                // a separate field from reviewCount, so this is appended here
++                // rather than folded into RatingStars itself.
++                if (course.students > 0) {
++                    Text(
++                        " · ${course.students} student${if (course.students == 1) "" else "s"}",
++                        style = MaterialTheme.typography.labelMedium,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    )
++                }
++            }
++            Spacer(Modifier.size(10.dp))
+             Row(
+                 modifier = Modifier.fillMaxWidth(),
+                 horizontalArrangement = Arrangement.SpaceBetween,
++                verticalAlignment = Alignment.CenterVertically,
+             ) {
+-                RatingStars(course.rating, course.reviewCount)
+                 PriceTag(course.priceCents, course.currency)
++                OutlinedButton(onClick = onAddToCart, enabled = !isInCart) {
++                    Text(if (isInCart) "In cart" else "Add to cart")
++                }
+             }
+         }
+     }
+ }
+-
+-private fun initialsFor(title: String): String =
+-    title.trim().split(" ").filter { it.isNotEmpty() }.take(2).map { it.first().uppercaseChar() }.joinToString("")
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogHomeSections.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogHomeSections.kt
+new file mode 100644
+index 0000000..79f48ea
+--- /dev/null
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogHomeSections.kt
+@@ -0,0 +1,289 @@
++package zw.co.eduquinn.app.ui.screens.catalog
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.lazy.LazyRow
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.Campaign
++import androidx.compose.material.icons.filled.Groups
++import androidx.compose.material.icons.filled.Schedule
++import androidx.compose.material.icons.filled.School
++import androidx.compose.material.icons.filled.Search
++import androidx.compose.material.icons.filled.Sell
++import androidx.compose.material.icons.filled.Shield
++import androidx.compose.material.icons.filled.Star
++import androidx.compose.material3.Card
++import androidx.compose.material3.CardDefaults
++import androidx.compose.material3.Icon
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import zw.co.eduquinn.app.data.model.Course
++import zw.co.eduquinn.app.data.model.PublicStats
++import zw.co.eduquinn.app.ui.components.CATALOG_CATEGORIES
++import zw.co.eduquinn.app.ui.components.CATALOG_STAGES
++import zw.co.eduquinn.app.ui.components.CategoryOption
++import zw.co.eduquinn.app.ui.components.PriceTag
++import zw.co.eduquinn.app.ui.components.RatingStars
++import zw.co.eduquinn.app.ui.components.StageOption
++import zw.co.eduquinn.app.ui.components.courseIcon
++import zw.co.eduquinn.app.ui.components.pillIcon
++import zw.co.eduquinn.app.ui.components.stageIcon
++
++/**
++ * The hero section from index.html: eyebrow, headline, subhead, a search
++ * field, and the 3-number stats card ("Students" / "Published courses" /
++ * "Instructors") fed by /api/public/stats — ported 1:1 rather than
++ * reinventing the copy.
++ */
++@Composable
++fun CatalogHero(
++    searchQuery: String,
++    onSearchQueryChange: (String) -> Unit,
++    stats: PublicStats?,
++    modifier: Modifier = Modifier,
++) {
++    Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
++        Text(
++            "LEARNING WITHOUT LIMITS",
++            style = MaterialTheme.typography.labelMedium,
++            fontWeight = FontWeight.Bold,
++            color = MaterialTheme.colorScheme.secondary,
++        )
++        Spacer(Modifier.size(6.dp))
++        Text(
++            "Learn skills. Advance your future.",
++            style = MaterialTheme.typography.headlineMedium,
++            fontWeight = FontWeight.Bold,
++        )
++        Spacer(Modifier.size(6.dp))
++        Text(
++            "Explore practical courses, join live classes and learn from trusted instructors.",
++            style = MaterialTheme.typography.bodyMedium,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        Spacer(Modifier.size(12.dp))
++        OutlinedTextField(
++            value = searchQuery,
++            onValueChange = onSearchQueryChange,
++            placeholder = { Text("What do you want to learn today?") },
++            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
++            singleLine = true,
++            modifier = Modifier.fillMaxWidth(),
++        )
++        if (stats != null) {
++            Spacer(Modifier.size(12.dp))
++            Card(elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
++                Row(
++                    modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
++                    horizontalArrangement = Arrangement.SpaceEvenly,
++                ) {
++                    StatItem(stats.students, "Students")
++                    StatItem(stats.courses, "Published courses")
++                    StatItem(stats.instructors, "Instructors")
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun StatItem(value: Int, label: String) {
++    Column(horizontalAlignment = Alignment.CenterHorizontally) {
++        Text("$value", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
++        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
++    }
++}
++
++/** The 8 fixed category pills from app.js's hardcoded `categories` array. */
++@Composable
++fun CategoryPillsRow(
++    selected: String?,
++    onSelect: (String) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    LazyRow(
++        modifier = modifier.fillMaxWidth(),
++        contentPadding = PaddingValues(horizontal = 16.dp),
++        horizontalArrangement = Arrangement.spacedBy(10.dp),
++    ) {
++        items(CATALOG_CATEGORIES, key = { it.label }) { option: CategoryOption ->
++            Pill(
++                label = option.label,
++                icon = pillIcon(option.iconKey),
++                selected = selected == option.label,
++                onClick = { onSelect(option.label) },
++            )
++        }
++    }
++}
++
++/** The 5 fixed education-stage cards from app.js's hardcoded stages array. */
++@Composable
++fun StageStripRow(
++    selected: String?,
++    onSelect: (String) -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    LazyRow(
++        modifier = modifier.fillMaxWidth(),
++        contentPadding = PaddingValues(horizontal = 16.dp),
++        horizontalArrangement = Arrangement.spacedBy(10.dp),
++    ) {
++        items(CATALOG_STAGES, key = { it.value }) { option: StageOption ->
++            Pill(
++                label = option.label,
++                icon = stageIcon(option.value),
++                selected = selected == option.value,
++                onClick = { onSelect(option.value) },
++            )
++        }
++    }
++}
++
++@Composable
++private fun Pill(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
++    Surface(
++        onClick = onClick,
++        shape = RoundedCornerShape(50),
++        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
++    ) {
++        Row(
++            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
++            verticalAlignment = Alignment.CenterVertically,
++        ) {
++            Icon(
++                icon,
++                contentDescription = null,
++                tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
++                modifier = Modifier.size(16.dp),
++            )
++            Spacer(Modifier.size(6.dp))
++            Text(
++                label,
++                style = MaterialTheme.typography.labelLarge,
++                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
++            )
++        }
++    }
++}
++
++/**
++ * The compact "Popular courses" list — same course set as the grid above,
++ * ranked by student count, deliberately unaffected by the category/stage/
++ * search filters (matches app.js's renderCourses(), which recomputes this
++ * from the full unfiltered course list).
++ */
++@Composable
++fun PopularCoursesList(courses: List<Course>, onCourseClick: (Course) -> Unit, modifier: Modifier = Modifier) {
++    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++        courses.forEach { course ->
++            Card(onClick = { onCourseClick(course) }, modifier = Modifier.fillMaxWidth()) {
++                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
++                    Box(
++                        modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
++                        contentAlignment = Alignment.Center,
++                    ) {
++                        Icon(
++                            courseIcon(course.category),
++                            contentDescription = null,
++                            tint = MaterialTheme.colorScheme.onPrimary,
++                            modifier = Modifier.size(20.dp),
++                        )
++                    }
++                    Spacer(Modifier.size(12.dp))
++                    Column(modifier = Modifier.weight(1f)) {
++                        Text(
++                            course.title,
++                            style = MaterialTheme.typography.titleSmall,
++                            fontWeight = FontWeight.SemiBold,
++                            maxLines = 1,
++                        )
++                        RatingStars(course.rating, course.reviewCount)
++                    }
++                    Spacer(Modifier.size(8.dp))
++                    PriceTag(course.priceCents, course.currency)
++                }
++            }
++        }
++    }
++}
++
++/** Static "Become an Instructor" / "Live Classes" promo cards — no live data, same copy as index.html. */
++@Composable
++fun PromoCardsRow(onInstructorClick: () -> Unit, onLiveClassesClick: () -> Unit, modifier: Modifier = Modifier) {
++    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
++        Card {
++            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
++                Icon(Icons.Filled.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
++                Spacer(Modifier.size(12.dp))
++                Column(modifier = Modifier.weight(1f)) {
++                    Text("SHARE KNOWLEDGE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
++                    Text("Become an Instructor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
++                    Text("Teach what you know and earn on EduQuinn.", style = MaterialTheme.typography.bodySmall)
++                    Spacer(Modifier.size(8.dp))
++                    OutlinedButton(onClick = onInstructorClick) { Text("Start teaching") }
++                }
++            }
++        }
++        Card {
++            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
++                Icon(Icons.Filled.Campaign, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
++                Spacer(Modifier.size(12.dp))
++                Column(modifier = Modifier.weight(1f)) {
++                    Text("REAL-TIME LEARNING", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
++                    Text("Live Classes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
++                    Text("Interact with expert instructors in scheduled sessions.", style = MaterialTheme.typography.bodySmall)
++                    Spacer(Modifier.size(8.dp))
++                    OutlinedButton(onClick = onLiveClassesClick) { Text("View upcoming classes") }
++                }
++            }
++        }
++    }
++}
++
++private data class Benefit(val icon: ImageVector, val title: String, val subtitle: String)
++
++private val BENEFITS = listOf(
++    Benefit(Icons.Filled.Sell, "Affordable", "Quality education at fair prices"),
++    Benefit(Icons.Filled.Schedule, "Flexible learning", "Learn at your own pace"),
++    Benefit(Icons.Filled.Groups, "Expert instructors", "Learn from verified professionals"),
++    Benefit(Icons.Filled.Star, "Certificates", "Showcase your achievement"),
++    Benefit(Icons.Filled.Shield, "Secure payments", "Safe and reliable checkout"),
++)
++
++/** Static 5-item benefits strip — same copy/order as index.html's .benefits section. */
++@Composable
++fun BenefitsStrip(modifier: Modifier = Modifier) {
++    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
++        BENEFITS.forEach { benefit ->
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Icon(benefit.icon, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(22.dp))
++                Spacer(Modifier.size(12.dp))
++                Column {
++                    Text(benefit.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
++                    Text(benefit.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
++                }
++            }
++        }
++    }
++}
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt
+index a0cde48..519f70d 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt
+@@ -1,15 +1,17 @@
+ package zw.co.eduquinn.app.ui.screens.catalog
+ 
+-import androidx.compose.foundation.layout.Arrangement
++import android.net.Uri
++import androidx.browser.customtabs.CustomTabsIntent
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.material.icons.Icons
+-import androidx.compose.material.icons.filled.Search
+ import androidx.compose.material.icons.filled.ShoppingCart
+ import androidx.compose.material3.BadgedBox
+ import androidx.compose.material3.Badge
+@@ -17,7 +19,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TopAppBar
+@@ -25,6 +26,8 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.viewmodel.compose.viewModel
+ import androidx.lifecycle.viewmodel.initializer
+@@ -37,6 +40,14 @@ import zw.co.eduquinn.app.ui.components.ErrorState
+ import zw.co.eduquinn.app.ui.components.LoadingState
+ import zw.co.eduquinn.app.ui.nav.Destinations
+ 
++/**
++ * Restructured to match public/index.html section-for-section: hero
++ * (search + live stats) -> category pills -> education-stage strip ->
++ * "Featured courses" grid -> "Popular courses" compact list -> promo
++ * cards -> benefits strip. Course Detail/Checkout/My Learning/Account/
++ * Login stay plain Material3 for now — this pass covers the Catalog/home
++ * screen only.
++ */
+ @OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ fun CatalogScreen(
+@@ -50,6 +61,8 @@ fun CatalogScreen(
+     )
+     val uiState by viewModel.uiState.collectAsState()
+     val cartItems by CartStore.items.collectAsState()
++    val cartIds = cartItems.map { it.id }.toSet()
++    val context = LocalContext.current
+ 
+     Scaffold(
+         topBar = {
+@@ -75,43 +88,95 @@ fun CatalogScreen(
+             uiState.isLoading -> LoadingState(modifier = Modifier.padding(padding))
+             uiState.error != null && uiState.allCourses.isEmpty() ->
+                 ErrorState(uiState.error ?: "Could not load courses.", modifier = Modifier.padding(padding), onRetry = viewModel::load)
+-            else -> Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+-                OutlinedTextField(
+-                    value = uiState.searchQuery,
+-                    onValueChange = viewModel::onSearchQueryChange,
+-                    placeholder = { Text("Search courses") },
+-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+-                    singleLine = true,
+-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+-                )
++            else -> LazyColumn(
++                modifier = Modifier.fillMaxSize().padding(padding),
++                contentPadding = PaddingValues(bottom = 24.dp),
++            ) {
++                item {
++                    CatalogHero(
++                        searchQuery = uiState.searchQuery,
++                        onSearchQueryChange = viewModel::onSearchQueryChange,
++                        stats = uiState.stats,
++                    )
++                }
+ 
+-                uiState.stats?.let { stats ->
+-                    Text(
+-                        "${stats.courses} courses · ${stats.instructors} instructors · ${stats.students} students",
+-                        style = MaterialTheme.typography.labelMedium,
+-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
++                item {
++                    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
++                        SectionHeading(eyebrow = "EXPLORE", title = "Top categories")
++                    }
++                }
++                item {
++                    CategoryPillsRow(
++                        selected = uiState.selectedCategory,
++                        onSelect = viewModel::onCategorySelect,
++                        modifier = Modifier.padding(top = 8.dp),
++                    )
++                }
++                item {
++                    StageStripRow(
++                        selected = uiState.selectedStage,
++                        onSelect = viewModel::onStageSelect,
++                        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                     )
+                 }
+ 
+-                LazyColumn(
+-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+-                ) {
+-                    items(uiState.visibleCourses, key = { it.id }) { course ->
+-                        CourseCard(
+-                            course = course,
+-                            isWishlisted = course.id in uiState.wishlistIds,
+-                            onClick = { navController.navigate(Destinations.courseDetail(course.id)) },
+-                            onToggleWishlist = {
+-                                if (!viewModel.toggleWishlist(course.id)) {
+-                                    navController.navigate(Destinations.login(Destinations.CATALOG))
+-                                }
+-                            },
++                item {
++                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
++                        SectionHeading(eyebrow = "HANDPICKED", title = "Featured courses")
++                    }
++                }
++                items(uiState.visibleCourses, key = { it.id }) { course ->
++                    CourseCard(
++                        course = course,
++                        isWishlisted = course.id in uiState.wishlistIds,
++                        isInCart = course.id in cartIds,
++                        onClick = { navController.navigate(Destinations.courseDetail(course.id)) },
++                        onToggleWishlist = {
++                            if (!viewModel.toggleWishlist(course.id)) {
++                                navController.navigate(Destinations.login(Destinations.CATALOG))
++                            }
++                        },
++                        onAddToCart = { CartStore.add(course) },
++                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
++                    )
++                }
++
++                item {
++                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
++                        SectionHeading(eyebrow = "TRENDING", title = "Popular courses")
++                        Spacer(Modifier.height(8.dp))
++                        PopularCoursesList(
++                            courses = uiState.popularCourses,
++                            onCourseClick = { navController.navigate(Destinations.courseDetail(it.id)) },
++                            modifier = Modifier.padding(top = 10.dp),
+                         )
+                     }
+                 }
++
++                item {
++                    PromoCardsRow(
++                        onInstructorClick = {
++                            CustomTabsIntent.Builder().build()
++                                .launchUrl(context, Uri.parse("https://eduquinn.co.zw/signup.html?role=instructor"))
++                        },
++                        onLiveClassesClick = {
++                            CustomTabsIntent.Builder().build()
++                                .launchUrl(context, Uri.parse("https://eduquinn.co.zw/live-classes.html"))
++                        },
++                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
++                    )
++                }
++
++                item {
++                    BenefitsStrip(modifier = Modifier.padding(16.dp))
++                }
+             }
+         }
+     }
+ }
++
++@Composable
++private fun SectionHeading(eyebrow: String, title: String) {
++    Text(eyebrow, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
++    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
++}
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogViewModel.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogViewModel.kt
+index ffeefed..e229267 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogViewModel.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogViewModel.kt
+@@ -17,20 +17,37 @@ data class CatalogUiState(
+     val stats: PublicStats? = null,
+     val wishlistIds: Set<String> = emptySet(),
+     val searchQuery: String = "",
++    val selectedCategory: String? = null,
++    val selectedStage: String? = null,
+     val isLoading: Boolean = true,
+     val error: String? = null,
+ ) {
++    // Mirrors app.js's renderCourses() filter predicate exactly: category
++    // and stage are exact (case-insensitive) matches against the course's
++    // own fields, search is a substring match over title/category/
++    // instructor, and all three combine with AND.
+     val visibleCourses: List<Course>
+-        get() = if (searchQuery.isBlank()) {
+-            allCourses
+-        } else {
++        get() {
+             val q = searchQuery.trim().lowercase()
+-            allCourses.filter {
+-                it.title.lowercase().contains(q) ||
+-                    it.category?.lowercase()?.contains(q) == true ||
+-                    it.instructorName?.lowercase()?.contains(q) == true
++            return allCourses.filter { course ->
++                (selectedCategory == null || course.category.equals(selectedCategory, ignoreCase = true)) &&
++                    (selectedStage == null || course.educationLevel.equals(selectedStage, ignoreCase = true)) &&
++                    (
++                        q.isBlank() ||
++                            course.title.lowercase().contains(q) ||
++                            course.category?.lowercase()?.contains(q) == true ||
++                            course.instructorName?.lowercase()?.contains(q) == true
++                        )
+             }
+         }
++
++    /**
++     * The same course set ranked by student count, same as app.js's
++     * "Popular courses" compact list — deliberately unaffected by the
++     * category/stage/search filters above, matching the web behavior.
++     */
++    val popularCourses: List<Course>
++        get() = allCourses.sortedByDescending { it.students }.take(6)
+ }
+ 
+ class CatalogViewModel(
+@@ -76,6 +93,20 @@ class CatalogViewModel(
+         _uiState.value = _uiState.value.copy(searchQuery = query)
+     }
+ 
++    /** Tapping the already-active category clears it — same toggle behavior as app.js. */
++    fun onCategorySelect(category: String) {
++        _uiState.value = _uiState.value.copy(
++            selectedCategory = if (_uiState.value.selectedCategory == category) null else category,
++        )
++    }
++
++    /** Tapping the already-active stage clears it — same toggle behavior as app.js. */
++    fun onStageSelect(stage: String) {
++        _uiState.value = _uiState.value.copy(
++            selectedStage = if (_uiState.value.selectedStage == stage) null else stage,
++        )
++    }
++
+     /** Returns false (and does nothing) if the user needs to log in first. */
+     fun toggleWishlist(courseId: String): Boolean {
+         if (!SessionManager.isLoggedIn) return false

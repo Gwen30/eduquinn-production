@@ -1,0 +1,296 @@
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+index 85b95c3..a787283 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+@@ -17,8 +17,8 @@ android {
+         // seen, even on a brand-new, never-published app - bump this every
+         // time you need to upload a new build, including just to replace a
+         // closed-testing release while chasing down a fix.
+-        versionCode 7
+-        versionName "1.4.0"
++        versionCode 8
++        versionName "1.5.0"
+     }
+ 
+     signingConfigs {
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/SignedOutPrompt.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/SignedOutPrompt.kt
+new file mode 100644
+index 0000000..22e383b
+--- /dev/null
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/components/SignedOutPrompt.kt
+@@ -0,0 +1,43 @@
++package zw.co.eduquinn.app.ui.components
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.Button
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++
++/**
++ * The "You're not signed in" panel — previously duplicated verbatim
++ * between AccountScreen and WishlistScreen. Any screen that's only
++ * useful once there's a session (Wishlist, My Learning, Checkout) can
++ * reuse this instead of re-writing the same copy/buttons.
++ */
++@Composable
++fun SignedOutPrompt(
++    onSignIn: () -> Unit,
++    onCreateAccount: () -> Unit,
++    modifier: Modifier = Modifier,
++) {
++    Column(
++        modifier = modifier.fillMaxSize().padding(24.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++        verticalArrangement = Arrangement.spacedBy(16.dp),
++    ) {
++        Text("You're not signed in", style = MaterialTheme.typography.headlineSmall)
++        Text(
++            "Sign in to track your learning, wishlist courses, and buy new ones.",
++            style = MaterialTheme.typography.bodyLarge,
++            color = MaterialTheme.colorScheme.onSurfaceVariant,
++        )
++        Button(onClick = onSignIn, modifier = Modifier.fillMaxWidth()) { Text("Sign in") }
++        OutlinedButton(onClick = onCreateAccount, modifier = Modifier.fillMaxWidth()) { Text("Create an account") }
++    }
++}
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/account/AccountScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/account/AccountScreen.kt
+index 7a57d1e..9312c98 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/account/AccountScreen.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/account/AccountScreen.kt
+@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.material3.Button
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedButton
+@@ -24,6 +23,7 @@ import androidx.navigation.NavHostController
+ import kotlinx.coroutines.launch
+ import zw.co.eduquinn.app.EduQuinnApplication
+ import zw.co.eduquinn.app.data.repository.SessionManager
++import zw.co.eduquinn.app.ui.components.SignedOutPrompt
+ import zw.co.eduquinn.app.ui.nav.Destinations
+ 
+ @OptIn(ExperimentalMaterial3Api::class)
+@@ -38,12 +38,12 @@ fun AccountScreen(
+     Scaffold(
+         topBar = { TopAppBar(title = { Text("Account") }) },
+     ) { padding ->
+-        Column(
+-            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+-            horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.spacedBy(16.dp),
+-        ) {
+-            if (user != null) {
++        if (user != null) {
++            Column(
++                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
++                horizontalAlignment = Alignment.CenterHorizontally,
++                verticalArrangement = Arrangement.spacedBy(16.dp),
++            ) {
+                 Text(user!!.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                 Text(user!!.email, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                 Text(
+@@ -60,22 +60,13 @@ fun AccountScreen(
+                     },
+                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                 ) { Text("Log out") }
+-            } else {
+-                Text("You're not signed in", style = MaterialTheme.typography.headlineSmall)
+-                Text(
+-                    "Sign in to track your learning, wishlist courses, and buy new ones.",
+-                    style = MaterialTheme.typography.bodyLarge,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                )
+-                Button(
+-                    onClick = { navController.navigate(Destinations.login(Destinations.ACCOUNT)) },
+-                    modifier = Modifier.fillMaxWidth(),
+-                ) { Text("Sign in") }
+-                OutlinedButton(
+-                    onClick = { navController.navigate(Destinations.REGISTER) },
+-                    modifier = Modifier.fillMaxWidth(),
+-                ) { Text("Create an account") }
+             }
++        } else {
++            SignedOutPrompt(
++                onSignIn = { navController.navigate(Destinations.login(Destinations.ACCOUNT)) },
++                onCreateAccount = { navController.navigate(Destinations.REGISTER) },
++                modifier = Modifier.padding(padding),
++            )
+         }
+     }
+ }
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/OrderStatusScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/OrderStatusScreen.kt
+index f8006a2..77b792f 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/OrderStatusScreen.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/OrderStatusScreen.kt
+@@ -12,10 +12,13 @@ import androidx.compose.material.icons.Icons
+ import androidx.compose.material.icons.filled.CheckCircle
+ import androidx.compose.material.icons.filled.HourglassEmpty
+ import androidx.compose.material3.Button
++import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
++import androidx.compose.material3.TopAppBar
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.collectAsState
+@@ -32,6 +35,7 @@ import zw.co.eduquinn.app.EduQuinnApplication
+ import zw.co.eduquinn.app.ui.components.LoadingState
+ import zw.co.eduquinn.app.ui.nav.Destinations
+ 
++@OptIn(ExperimentalMaterial3Api::class)
+ @Composable
+ fun OrderStatusScreen(
+     app: EduQuinnApplication,
+@@ -53,15 +57,23 @@ fun OrderStatusScreen(
+         }
+     }
+ 
+-    Column(
+-        modifier = Modifier.fillMaxSize().padding(24.dp),
+-        horizontalAlignment = Alignment.CenterHorizontally,
+-        verticalArrangement = Arrangement.Center,
+-    ) {
+-        when {
++    Scaffold(
++        topBar = { TopAppBar(title = { Text("Order status") }) },
++    ) { padding ->
++        Column(
++            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++            verticalArrangement = Arrangement.Center,
++        ) {
++            when {
+             uiState.isLoading -> LoadingState()
+             uiState.order?.status == "paid" -> {
+-                Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(64.dp))
++                Icon(
++                    Icons.Filled.CheckCircle,
++                    contentDescription = null,
++                    tint = MaterialTheme.colorScheme.primary,
++                    modifier = Modifier.size(64.dp),
++                )
+                 Text("Payment confirmed!", style = MaterialTheme.typography.headlineSmall)
+                 Text(
+                     "You're enrolled — head to My Learning to get started.",
+@@ -74,7 +86,12 @@ fun OrderStatusScreen(
+                 ) { Text("Go to My Learning") }
+             }
+             uiState.order?.status == "pending_gateway" -> {
+-                Icon(Icons.Filled.HourglassEmpty, contentDescription = null, modifier = Modifier.size(64.dp))
++                Icon(
++                    Icons.Filled.HourglassEmpty,
++                    contentDescription = null,
++                    tint = MaterialTheme.colorScheme.secondary,
++                    modifier = Modifier.size(64.dp),
++                )
+                 Text("Waiting for payment", style = MaterialTheme.typography.headlineSmall)
+                 Text(
+                     "We haven't received confirmation yet. If you've completed payment, check again in a moment.",
+@@ -100,6 +117,7 @@ fun OrderStatusScreen(
+                     Text("Check again")
+                 }
+             }
++            }
+         }
+     }
+ }
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt
+index 4c2f85e..d257efe 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt
+@@ -8,10 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+-import androidx.compose.material3.Button
+ import androidx.compose.material3.ExperimentalMaterial3Api
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.Scaffold
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TopAppBar
+@@ -32,6 +30,7 @@ import zw.co.eduquinn.app.data.repository.SessionManager
+ import zw.co.eduquinn.app.ui.components.CourseCard
+ import zw.co.eduquinn.app.ui.components.ErrorState
+ import zw.co.eduquinn.app.ui.components.LoadingState
++import zw.co.eduquinn.app.ui.components.SignedOutPrompt
+ import zw.co.eduquinn.app.ui.nav.Destinations
+ 
+ @OptIn(ExperimentalMaterial3Api::class)
+@@ -53,26 +52,11 @@ fun WishlistScreen(
+         topBar = { TopAppBar(title = { Text("Wishlist") }) },
+     ) { padding ->
+         when {
+-            !SessionManager.isLoggedIn -> Column(
+-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+-                horizontalAlignment = Alignment.CenterHorizontally,
+-                verticalArrangement = Arrangement.spacedBy(16.dp),
+-            ) {
+-                Text("You're not signed in", style = MaterialTheme.typography.headlineSmall)
+-                Text(
+-                    "Sign in to track your learning, wishlist courses, and buy new ones.",
+-                    style = MaterialTheme.typography.bodyLarge,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                )
+-                Button(
+-                    onClick = { navController.navigate(Destinations.login(Destinations.WISHLIST)) },
+-                    modifier = Modifier.fillMaxWidth(),
+-                ) { Text("Sign in") }
+-                OutlinedButton(
+-                    onClick = { navController.navigate(Destinations.REGISTER) },
+-                    modifier = Modifier.fillMaxWidth(),
+-                ) { Text("Create an account") }
+-            }
++            !SessionManager.isLoggedIn -> SignedOutPrompt(
++                onSignIn = { navController.navigate(Destinations.login(Destinations.WISHLIST)) },
++                onCreateAccount = { navController.navigate(Destinations.REGISTER) },
++                modifier = Modifier.padding(padding),
++            )
+             uiState.isLoading -> LoadingState(modifier = Modifier.padding(padding))
+             uiState.error != null && uiState.courses.isEmpty() ->
+                 ErrorState(uiState.error ?: "Could not load your wishlist.", modifier = Modifier.padding(padding), onRetry = viewModel::load)
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/theme/Type.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/theme/Type.kt
+index 5670ccf..fb76dec 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/theme/Type.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/theme/Type.kt
+@@ -2,16 +2,20 @@ package zw.co.eduquinn.app.ui.theme
+ 
+ import androidx.compose.material3.Typography
+ import androidx.compose.ui.text.TextStyle
++import androidx.compose.ui.text.font.FontFamily
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.sp
+ 
+ // System default font family for v1 (no custom brand font bundled yet) —
+-// weight/size tuned to echo the web app's heading/body contrast.
++// weight/size tuned to echo the web app's heading/body contrast. Headings
++// use the generic serif family (the closest system match to the website's
++// Georgia/Playfair Display headings) while body text stays sans, mirroring
++// the site's own serif-heading/sans-body split.
+ val EduQuinnTypography = Typography(
+-    headlineLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 36.sp),
+-    headlineMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp),
+-    headlineSmall = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp),
+-    titleLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp),
++    headlineLarge = TextStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 36.sp),
++    headlineMedium = TextStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp),
++    headlineSmall = TextStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp),
++    titleLarge = TextStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp),
+     titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
+     bodyLarge = TextStyle(fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp),
+     bodyMedium = TextStyle(fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),

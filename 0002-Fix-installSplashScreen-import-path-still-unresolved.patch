@@ -1,0 +1,43 @@
+From ce5b6b755626c892007099b2390028a68cc9f923 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 15:36:23 +0200
+Subject: [PATCH] Fix installSplashScreen import path (still unresolved after
+ prior fix)
+
+installSplashScreen() is an extension function on Activity declared
+inside SplashScreen's companion object, not a true top-level function.
+The JVM/metalava view of it looks like a static method taking an
+Activity parameter (which is why the Java call in MainActivity.java,
+SplashScreen.installSplashScreen(this), works), but Kotlin resolves it
+through extension-function rules and needs the class name kept in the
+import path:
+
+    import androidx.core.splashscreen.SplashScreen.installSplashScreen
+
+Importing it as a bare androidx.core.splashscreen.installSplashScreen
+(previous commit) treated it as fully top-level, which doesn't exist at
+that path and left it unresolved - same error, same lines, in the next
+CI run. The call site was already correct (bare installSplashScreen()).
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ .../app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt   | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+index 39f33aa..fb0d9d1 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+@@ -12,7 +12,7 @@ import androidx.compose.material3.Surface
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Modifier
+-import androidx.core.splashscreen.installSplashScreen
++import androidx.core.splashscreen.SplashScreen.installSplashScreen
+ import androidx.lifecycle.lifecycleScope
+ import kotlinx.coroutines.launch
+ import zw.co.eduquinn.app.EduQuinnApplication
+-- 
+2.43.0
+

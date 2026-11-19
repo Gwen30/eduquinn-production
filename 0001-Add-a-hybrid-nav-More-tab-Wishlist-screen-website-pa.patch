@@ -1,0 +1,442 @@
+From 55e57ee0172dd42d375fd97bdc847e0920c41e74 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 14:45:33 +0200
+Subject: [PATCH] Add a hybrid nav: More tab + Wishlist screen (website parity,
+ Option C)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The website's header has more links than the app's 3-tab bottom bar
+covers (Categories, Live Classes, My Learning, Messages, Purchases,
+Business, Instructor Studio, plus search/wishlist/cart). Mocked up
+three ways to close that gap; the chosen approach keeps the existing
+bottom tabs and adds what's missing rather than rebuilding navigation
+from scratch:
+
+- Destinations/BottomNavBar: a 4th "More" tab alongside Explore/My
+  Learning/Account.
+- New MoreScreen: a 5-row list for Live Classes, Messages, Purchases,
+  EduQuinn Business, and Instructor Studio — none of these have native
+  screens (by original scope), so each row hands off to the real
+  website page via Chrome Custom Tabs, the same pattern already used
+  for the Catalog screen's promo cards and the Paynow checkout flow.
+- New WishlistScreen/WishlistViewModel: the Catalog top bar gets a
+  wishlist icon (next to the existing cart icon) with a badge count,
+  opening a screen built from the existing WishlistRepository and the
+  already-redesigned CourseCard component unchanged.
+- Bump versionCode/versionName for the next Play Console upload.
+
+Categories already live on the Catalog screen (pills) and My Learning
+already has its own tab, so More only needed the remaining 5 links. A
+top-bar search icon was left out deliberately — the Catalog hero's
+search field already covers it on the one screen that has one.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ .../EduQuinn-Android/app/build.gradle         |   4 +-
+ .../zw/co/eduquinn/app/ui/nav/BottomNavBar.kt |   2 +
+ .../zw/co/eduquinn/app/ui/nav/Destinations.kt |   4 +-
+ .../co/eduquinn/app/ui/nav/EduQuinnNavHost.kt |   4 +
+ .../app/ui/screens/catalog/CatalogScreen.kt   |   6 +
+ .../app/ui/screens/more/MoreScreen.kt         |  99 ++++++++++++++++
+ .../app/ui/screens/wishlist/WishlistScreen.kt | 110 ++++++++++++++++++
+ .../ui/screens/wishlist/WishlistViewModel.kt  |  56 +++++++++
+ 8 files changed, 282 insertions(+), 3 deletions(-)
+ create mode 100644 EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/more/MoreScreen.kt
+ create mode 100644 EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt
+ create mode 100644 EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistViewModel.kt
+
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+index 739b2bb..85b95c3 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+@@ -17,8 +17,8 @@ android {
+         // seen, even on a brand-new, never-published app - bump this every
+         // time you need to upload a new build, including just to replace a
+         // closed-testing release while chasing down a fix.
+-        versionCode 6
+-        versionName "1.3.0"
++        versionCode 7
++        versionName "1.4.0"
+     }
+ 
+     signingConfigs {
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt
+index 7f85404..0d26eb7 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt
+@@ -2,6 +2,7 @@ package zw.co.eduquinn.app.ui.nav
+ 
+ import androidx.compose.material.icons.Icons
+ import androidx.compose.material.icons.filled.Explore
++import androidx.compose.material.icons.filled.MoreHoriz
+ import androidx.compose.material.icons.filled.Person
+ import androidx.compose.material.icons.filled.School
+ import androidx.compose.material3.Icon
+@@ -21,6 +22,7 @@ private val TABS = listOf(
+     BottomTab(Destinations.CATALOG, "Explore", Icons.Filled.Explore),
+     BottomTab(Destinations.MY_LEARNING, "My Learning", Icons.Filled.School),
+     BottomTab(Destinations.ACCOUNT, "Account", Icons.Filled.Person),
++    BottomTab(Destinations.MORE, "More", Icons.Filled.MoreHoriz),
+ )
+ 
+ @Composable
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/Destinations.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/Destinations.kt
+index a0b866b..5da1a7e 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/Destinations.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/Destinations.kt
+@@ -11,6 +11,7 @@ object Destinations {
+     const val CATALOG = "catalog"
+     const val MY_LEARNING = "my_learning"
+     const val ACCOUNT = "account"
++    const val MORE = "more"
+ 
+     const val LOGIN = "login?returnTo={returnTo}"
+     const val LOGIN_BASE = "login"
+@@ -20,8 +21,9 @@ object Destinations {
+     const val ORDER_STATUS = "order_status/{orderId}"
+     const val LESSON_PLAYER = "lesson_player/{courseId}/{lessonId}"
+     const val CERTIFICATE = "certificate/{courseId}"
++    const val WISHLIST = "wishlist"
+ 
+-    val TOP_LEVEL = setOf(CATALOG, MY_LEARNING, ACCOUNT)
++    val TOP_LEVEL = setOf(CATALOG, MY_LEARNING, ACCOUNT, MORE)
+ 
+     fun courseDetail(courseId: String) = "course_detail/$courseId"
+     fun checkout(courseIdsCsv: String) = "checkout/$courseIdsCsv"
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/EduQuinnNavHost.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/EduQuinnNavHost.kt
+index 76b70b9..517604e 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/EduQuinnNavHost.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/EduQuinnNavHost.kt
+@@ -21,8 +21,10 @@ import zw.co.eduquinn.app.ui.screens.certificate.CertificateScreen
+ import zw.co.eduquinn.app.ui.screens.checkout.CheckoutScreen
+ import zw.co.eduquinn.app.ui.screens.checkout.OrderStatusScreen
+ import zw.co.eduquinn.app.ui.screens.coursedetail.CourseDetailScreen
++import zw.co.eduquinn.app.ui.screens.more.MoreScreen
+ import zw.co.eduquinn.app.ui.screens.mylearning.MyLearningScreen
+ import zw.co.eduquinn.app.ui.screens.player.LessonPlayerScreen
++import zw.co.eduquinn.app.ui.screens.wishlist.WishlistScreen
+ 
+ /**
+  * Top-level NavHost. Catalog/My Learning/Account are the 3 bottom-tab
+@@ -54,6 +56,8 @@ fun EduQuinnNavHost(
+             composable(Destinations.CATALOG) { CatalogScreen(app = app, navController = navController) }
+             composable(Destinations.MY_LEARNING) { MyLearningScreen(app = app, navController = navController) }
+             composable(Destinations.ACCOUNT) { AccountScreen(app = app, navController = navController) }
++            composable(Destinations.MORE) { MoreScreen() }
++            composable(Destinations.WISHLIST) { WishlistScreen(app = app, navController = navController) }
+ 
+             composable(
+                 Destinations.COURSE_DETAIL,
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt
+index 519f70d..47350c1 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/catalog/CatalogScreen.kt
+@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.FavoriteBorder
+ import androidx.compose.material.icons.filled.ShoppingCart
+ import androidx.compose.material3.BadgedBox
+ import androidx.compose.material3.Badge
+@@ -69,6 +70,11 @@ fun CatalogScreen(
+             TopAppBar(
+                 title = { Text("EduQuinn") },
+                 actions = {
++                    IconButton(onClick = { navController.navigate(Destinations.WISHLIST) }) {
++                        BadgedBox(badge = { if (uiState.wishlistIds.isNotEmpty()) Badge { Text("${uiState.wishlistIds.size}") } }) {
++                            Icon(Icons.Filled.FavoriteBorder, contentDescription = "Wishlist")
++                        }
++                    }
+                     IconButton(
+                         onClick = {
+                             if (cartItems.isNotEmpty()) {
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/more/MoreScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/more/MoreScreen.kt
+new file mode 100644
+index 0000000..2cc84ff
+--- /dev/null
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/more/MoreScreen.kt
+@@ -0,0 +1,99 @@
++package zw.co.eduquinn.app.ui.screens.more
++
++import android.net.Uri
++import androidx.browser.customtabs.CustomTabsIntent
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.AccountBalance
++import androidx.compose.material.icons.filled.ChevronRight
++import androidx.compose.material.icons.filled.Chat
++import androidx.compose.material.icons.filled.Receipt
++import androidx.compose.material.icons.filled.School
++import androidx.compose.material.icons.filled.VideoCameraFront
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.HorizontalDivider
++import androidx.compose.material3.Icon
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++
++private data class MoreLink(val icon: ImageVector, val label: String, val url: String, val livePill: Boolean = false)
++
++/**
++ * The rest of the website's header nav (public/index.html's #mainNav)
++ * that doesn't have a native screen: Categories lives on the Catalog
++ * screen itself and My Learning already has its own bottom tab, so this
++ * covers everything else. None of these are rebuilt natively — same
++ * website hand-off via Custom Tabs already used by CatalogScreen's promo
++ * cards and the Paynow checkout flow.
++ */
++private val MORE_LINKS = listOf(
++    MoreLink(Icons.Filled.VideoCameraFront, "Live Classes", "https://eduquinn.co.zw/live-classes.html", livePill = true),
++    MoreLink(Icons.Filled.Chat, "Messages", "https://eduquinn.co.zw/messages.html"),
++    MoreLink(Icons.Filled.Receipt, "Purchases", "https://eduquinn.co.zw/purchases.html"),
++    MoreLink(Icons.Filled.AccountBalance, "EduQuinn Business", "https://eduquinn.co.zw/business.html"),
++    MoreLink(Icons.Filled.School, "Instructor Studio", "https://eduquinn.co.zw/instructor.html"),
++)
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun MoreScreen() {
++    val context = LocalContext.current
++
++    Scaffold(
++        topBar = { TopAppBar(title = { Text("More") }) },
++    ) { padding ->
++        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
++            items(MORE_LINKS) { link ->
++                Surface(
++                    onClick = {
++                        CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(link.url))
++                    },
++                ) {
++                    Row(
++                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
++                        verticalAlignment = Alignment.CenterVertically,
++                    ) {
++                        Icon(link.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
++                        Spacer(Modifier.size(16.dp))
++                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
++                            Text(link.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
++                            if (link.livePill) {
++                                Spacer(Modifier.size(8.dp))
++                                Surface(
++                                    color = MaterialTheme.colorScheme.primary,
++                                    shape = MaterialTheme.shapes.extraLarge,
++                                ) {
++                                    Text(
++                                        "Live",
++                                        style = MaterialTheme.typography.labelSmall,
++                                        color = MaterialTheme.colorScheme.onPrimary,
++                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
++                                    )
++                                }
++                            }
++                        }
++                        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
++                    }
++                }
++                HorizontalDivider()
++            }
++        }
++    }
++}
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt
+new file mode 100644
+index 0000000..4c2f85e
+--- /dev/null
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistScreen.kt
+@@ -0,0 +1,110 @@
++package zw.co.eduquinn.app.ui.screens.wishlist
++
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.material3.Button
++import androidx.compose.material3.ExperimentalMaterial3Api
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
++import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Text
++import androidx.compose.material3.TopAppBar
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import androidx.lifecycle.viewmodel.compose.viewModel
++import androidx.lifecycle.viewmodel.initializer
++import androidx.lifecycle.viewmodel.viewModelFactory
++import androidx.navigation.NavHostController
++import zw.co.eduquinn.app.EduQuinnApplication
++import zw.co.eduquinn.app.data.cart.CartStore
++import zw.co.eduquinn.app.data.repository.SessionManager
++import zw.co.eduquinn.app.ui.components.CourseCard
++import zw.co.eduquinn.app.ui.components.ErrorState
++import zw.co.eduquinn.app.ui.components.LoadingState
++import zw.co.eduquinn.app.ui.nav.Destinations
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++fun WishlistScreen(
++    app: EduQuinnApplication,
++    navController: NavHostController,
++) {
++    val viewModel: WishlistViewModel = viewModel(
++        factory = viewModelFactory {
++            initializer { WishlistViewModel(app.services.wishlistRepository) }
++        },
++    )
++    val uiState by viewModel.uiState.collectAsState()
++    val cartItems by CartStore.items.collectAsState()
++    val cartIds = cartItems.map { it.id }.toSet()
++
++    Scaffold(
++        topBar = { TopAppBar(title = { Text("Wishlist") }) },
++    ) { padding ->
++        when {
++            !SessionManager.isLoggedIn -> Column(
++                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
++                horizontalAlignment = Alignment.CenterHorizontally,
++                verticalArrangement = Arrangement.spacedBy(16.dp),
++            ) {
++                Text("You're not signed in", style = MaterialTheme.typography.headlineSmall)
++                Text(
++                    "Sign in to track your learning, wishlist courses, and buy new ones.",
++                    style = MaterialTheme.typography.bodyLarge,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++                Button(
++                    onClick = { navController.navigate(Destinations.login(Destinations.WISHLIST)) },
++                    modifier = Modifier.fillMaxWidth(),
++                ) { Text("Sign in") }
++                OutlinedButton(
++                    onClick = { navController.navigate(Destinations.REGISTER) },
++                    modifier = Modifier.fillMaxWidth(),
++                ) { Text("Create an account") }
++            }
++            uiState.isLoading -> LoadingState(modifier = Modifier.padding(padding))
++            uiState.error != null && uiState.courses.isEmpty() ->
++                ErrorState(uiState.error ?: "Could not load your wishlist.", modifier = Modifier.padding(padding), onRetry = viewModel::load)
++            uiState.courses.isEmpty() -> Column(
++                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
++                horizontalAlignment = Alignment.CenterHorizontally,
++                verticalArrangement = Arrangement.spacedBy(8.dp),
++            ) {
++                Text("Your wishlist is empty", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
++                Text(
++                    "Tap the heart on any course to save it here.",
++                    style = MaterialTheme.typography.bodyMedium,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                )
++            }
++            else -> LazyColumn(
++                modifier = Modifier.fillMaxSize().padding(padding),
++                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
++                verticalArrangement = Arrangement.spacedBy(12.dp),
++            ) {
++                items(uiState.courses, key = { it.id }) { course ->
++                    CourseCard(
++                        course = course,
++                        isWishlisted = true,
++                        isInCart = course.id in cartIds,
++                        onClick = { navController.navigate(Destinations.courseDetail(course.id)) },
++                        onToggleWishlist = { viewModel.remove(course.id) },
++                        onAddToCart = { CartStore.add(course) },
++                        modifier = Modifier.fillMaxWidth(),
++                    )
++                }
++            }
++        }
++    }
++}
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistViewModel.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistViewModel.kt
+new file mode 100644
+index 0000000..c76f9c7
+--- /dev/null
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/wishlist/WishlistViewModel.kt
+@@ -0,0 +1,56 @@
++package zw.co.eduquinn.app.ui.screens.wishlist
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import zw.co.eduquinn.app.data.model.Course
++import zw.co.eduquinn.app.data.repository.SessionManager
++import zw.co.eduquinn.app.data.repository.WishlistRepository
++
++data class WishlistUiState(
++    val courses: List<Course> = emptyList(),
++    val isLoading: Boolean = true,
++    val error: String? = null,
++)
++
++class WishlistViewModel(private val wishlistRepository: WishlistRepository) : ViewModel() {
++
++    private val _uiState = MutableStateFlow(WishlistUiState())
++    val uiState: StateFlow<WishlistUiState> = _uiState.asStateFlow()
++
++    init {
++        load()
++    }
++
++    fun load() {
++        if (!SessionManager.isLoggedIn) {
++            // Same login-gate pattern AccountScreen uses — nothing to fetch
++            // until there's a session; the screen itself renders the
++            // sign-in prompt for this state.
++            _uiState.value = _uiState.value.copy(isLoading = false, courses = emptyList(), error = null)
++            return
++        }
++        _uiState.value = _uiState.value.copy(isLoading = true, error = null)
++        viewModelScope.launch {
++            wishlistRepository.wishlist().fold(
++                onSuccess = { courses -> _uiState.value = _uiState.value.copy(courses = courses, isLoading = false, error = null) },
++                onFailure = { error -> _uiState.value = _uiState.value.copy(isLoading = false, error = error.message) },
++            )
++        }
++    }
++
++    /** Optimistic remove, same idiom as CatalogViewModel.toggleWishlist. */
++    fun remove(courseId: String) {
++        val previous = _uiState.value.courses
++        _uiState.value = _uiState.value.copy(courses = previous.filterNot { it.id == courseId })
++        viewModelScope.launch {
++            val result = wishlistRepository.remove(courseId)
++            if (result.isFailure) {
++                _uiState.value = _uiState.value.copy(courses = previous)
++            }
++        }
++    }
++}
+-- 
+2.43.0
+

@@ -1,0 +1,108 @@
+From 6e96b4975cb6d9c49891473a234acf71e04394ec Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 15:29:14 +0200
+Subject: [PATCH] Fix Android build: Kotlin/Gradle compile errors
+
+- app/build.gradle: enable buildFeatures.buildConfig so BuildConfig is
+  generated (NetworkModule.kt references BuildConfig.DEBUG).
+- NativeActivity.kt: installSplashScreen() is a Kotlin top-level
+  extension function, not a static method on SplashScreen -
+  SplashScreen.installSplashScreen(this) is Java-interop syntax and
+  doesn't resolve from Kotlin. Import the function directly and call
+  it bare.
+- BottomNavBar.kt: add the missing androidx.compose.runtime.getValue
+  import needed for the `by navController.currentBackStackEntryAsState()`
+  delegate.
+- CertificateScreen.kt: rememberGraphicsLayer lives in
+  androidx.compose.ui.graphics, not androidx.compose.ui.graphics.layer -
+  fix the import path.
+- CheckoutScreen.kt: drop the stray
+  `import androidx.compose.foundation.layout.weight` - weight() is a
+  RowScope/ColumnScope member, not a top-level import. Under the K2
+  compiler that import resolves to an internal property instead of
+  being silently ignored, which broke Modifier.weight(1f) usage.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ .../EduQuinn-Android/app/build.gradle                         | 1 +
+ .../app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt | 4 ++--
+ .../src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt   | 1 +
+ .../eduquinn/app/ui/screens/certificate/CertificateScreen.kt  | 2 +-
+ .../zw/co/eduquinn/app/ui/screens/checkout/CheckoutScreen.kt  | 1 -
+ 5 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+index a8af7cb..bc59b16 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+@@ -46,6 +46,7 @@ android {
+ 
+     buildFeatures {
+         compose true
++        buildConfig true
+     }
+ }
+ 
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+index 6190cda..39f33aa 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+@@ -12,7 +12,7 @@ import androidx.compose.material3.Surface
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Modifier
+-import androidx.core.splashscreen.SplashScreen
++import androidx.core.splashscreen.installSplashScreen
+ import androidx.lifecycle.lifecycleScope
+ import kotlinx.coroutines.launch
+ import zw.co.eduquinn.app.EduQuinnApplication
+@@ -52,7 +52,7 @@ class NativeActivity : ComponentActivity() {
+         // start (Theme.EduQuinn.Starting in styles.xml), now bridging the
+         // moment between tapping the icon and the first Compose frame
+         // instead of the WebView's first frame.
+-        val splashScreen = SplashScreen.installSplashScreen(this)
++        val splashScreen = installSplashScreen()
+         splashScreen.setKeepOnScreenCondition { !((sessionDone && minTimeDone) || forceDone) }
+         val handler = Handler(Looper.getMainLooper())
+         handler.postDelayed({ minTimeDone = true }, MIN_SPLASH_MS)
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt
+index c56b18b..7f85404 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/nav/BottomNavBar.kt
+@@ -9,6 +9,7 @@ import androidx.compose.material3.NavigationBar
+ import androidx.compose.material3.NavigationBarItem
+ import androidx.compose.material3.Text
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
+ import androidx.navigation.NavDestination.Companion.hierarchy
+ import androidx.navigation.NavGraph.Companion.findStartDestination
+ import androidx.navigation.NavHostController
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/certificate/CertificateScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/certificate/CertificateScreen.kt
+index cc0ec1d..317f510 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/certificate/CertificateScreen.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/certificate/CertificateScreen.kt
+@@ -32,7 +32,7 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.drawWithContent
+ import androidx.compose.ui.graphics.asAndroidBitmap
+ import androidx.compose.ui.graphics.layer.drawLayer
+-import androidx.compose.ui.graphics.layer.rememberGraphicsLayer
++import androidx.compose.ui.graphics.rememberGraphicsLayer
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/CheckoutScreen.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/CheckoutScreen.kt
+index be702b9..5601005 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/CheckoutScreen.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/screens/checkout/CheckoutScreen.kt
+@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+-import androidx.compose.foundation.layout.weight
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.material.icons.Icons
+-- 
+2.43.0
+

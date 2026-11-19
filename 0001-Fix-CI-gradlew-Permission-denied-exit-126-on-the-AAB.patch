@@ -1,0 +1,46 @@
+From 7deab5e44f2fbb24e5fa77e7741afac68efd11cc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 22:10:17 +0200
+Subject: [PATCH] Fix CI: gradlew Permission denied (exit 126) on the AAB build
+
+The release-bundle step started failing with "./gradlew: Permission
+denied" - the file is committed with the executable bit set (100755),
+but that bit doesn't reliably survive a Windows git client, a patch
+applied with git apply instead of git am, or a manual re-save, and it
+had been silently flipped back to non-executable by the time this ran
+in CI. Added an unconditional `chmod +x gradlew` step right before the
+build runs, so this doesn't depend on whatever mode happens to be
+tracked by the time a commit is pushed.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ .github/workflows/build-apk.yml | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/.github/workflows/build-apk.yml b/.github/workflows/build-apk.yml
+index 657651f..3599d0d 100644
+--- a/.github/workflows/build-apk.yml
++++ b/.github/workflows/build-apk.yml
+@@ -39,6 +39,18 @@ jobs:
+         # gradle/wrapper/gradle-wrapper.properties), so ./gradlew drives the
+         # version; this action is kept for its build-cache/daemon setup.
+ 
++      - name: Make gradlew executable
++        # gradlew is committed with the executable bit set (100755), but
++        # that bit doesn't survive every path a commit can take before it
++        # reaches this checkout - a Windows git client, a patch applied
++        # with `git apply` instead of `git am`, or a manual re-save can all
++        # silently flip it back to 100644, which fails here with "Permission
++        # denied" (exit 126) rather than anywhere closer to the cause. Doing
++        # this unconditionally means the build never depends on whatever the
++        # tracked mode happens to be by the time it's pushed.
++        working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
++        run: chmod +x gradlew
++
+       - name: Decode signing keystore
+         working-directory: EduQuinn-Android-Build-Ready/EduQuinn-Android
+         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.jks
+-- 
+2.43.0
+

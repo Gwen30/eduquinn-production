@@ -1,0 +1,701 @@
+From 14025b67a990f747a4fbbf80a99ebdef3835efe1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 17:22:57 +0200
+Subject: [PATCH] Add instructor 2FA (TOTP) and student email verification
+
+Two of the auth-security recommendations from earlier in this thread,
+implemented on top of the existing session/rate-limit/Brevo-email
+infrastructure rather than adding new ones:
+
+Instructors - mandatory TOTP 2FA (otplib), enrolled the first time an
+instructor account (new or existing) completes a password check with no
+totp_secret set yet. A server-side mfa_challenges row (10 min expiry)
+carries the setup-in-progress secret across the extra round trip to
+POST /api/auth/mfa/verify, so nothing is written onto the user row until
+they've proven they can already generate a matching code with it. 8
+bcrypt-hashed one-time backup codes are generated at enrolment and shown
+once. QR code is rendered server-side (qrcode package) as a data URL, so
+no third-party script needs loading client-side. Scoped to instructors
+only, as asked - students and admins are unaffected.
+
+Students - email verification gates login (not registration): register()
+now sends a verification link instead of issuing a session for a new
+student account; login blocks an unverified student with a clear message
+and a resend option. Reuses the existing sendBrevoEmail/Brevo integration
+(same one announcement emails already go through) and the email_verified
+column that was already on the users table but never wired up to
+anything. Token is a random 256-bit value, only its sha256 is stored,
+24h expiry.
+
+Frontend: login.html and signup.html's inline <script> blocks are now
+external files (login.js/signup.js) - this was also the simplest way to
+extend them without having to recompute and update their sha256 hashes
+in the CSP header (script-src allows 'self', so external files need no
+hash). New shared mfa.js renders the QR/code-entry/backup-codes overlay
+used by both pages. New verify-email.html+js is the landing page for the
+mailed link. auth.js's login()/register() no longer assume a response
+always carries a user - pendingVerification/mfaRequired/mfaSetupRequired
+responses carry none yet.
+
+Known follow-up, not addressed here: the native Android app's
+AuthRepository.login expects {user} straight back from /api/auth/login.
+Since this is the same shared endpoint, an instructor logging in through
+the native app will now get an mfaRequired/mfaSetupRequired response it
+doesn't yet handle. Instructor-facing screens were already out of scope
+for the native v1 build, but login itself wasn't - this needs a small
+native MFA entry screen as a follow-up.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ api/index.js             | 149 ++++++++++++++++++++++++++++++++++++++-
+ db/schema.sql            |  34 +++++++++
+ package.json             |   4 +-
+ public/auth.js           |  11 ++-
+ public/login.html        |   4 +-
+ public/login.js          |  42 +++++++++++
+ public/mfa.js            |  81 +++++++++++++++++++++
+ public/signup.html       |  36 +---------
+ public/signup.js         |  55 +++++++++++++++
+ public/styles.css        |  37 ++++++++++
+ public/verify-email.html |   1 +
+ public/verify-email.js   |  51 ++++++++++++++
+ 12 files changed, 462 insertions(+), 43 deletions(-)
+ create mode 100644 public/login.js
+ create mode 100644 public/mfa.js
+ create mode 100644 public/signup.js
+ create mode 100644 public/verify-email.html
+ create mode 100644 public/verify-email.js
+
+diff --git a/api/index.js b/api/index.js
+index a38a8c2..c90566c 100644
+--- a/api/index.js
++++ b/api/index.js
+@@ -27,6 +27,8 @@
+ const crypto = require('crypto');
+ const https = require('https');
+ const bcrypt = require('bcryptjs');
++const { authenticator } = require('otplib');
++const QRCode = require('qrcode');
+ const db = require('../db');
+ const storage = require('../lib/storage');
+ const { hitRate } = require('../lib/rateLimit');
+@@ -40,6 +42,7 @@ const APP_BASE_URL = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
+ const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || APP_BASE_URL).split(',').map((x) => x.trim()).filter(Boolean));
+ const API_RATE_LIMIT = Math.max(30, Number(process.env.API_RATE_LIMIT || 300));
+ const LOGIN_RATE_LIMIT = Math.max(3, Number(process.env.LOGIN_RATE_LIMIT || 10));
++const MFA_RATE_LIMIT = Math.max(3, Number(process.env.MFA_RATE_LIMIT || 8));
+ const RATE_WINDOW_MS = Math.max(60000, Number(process.env.RATE_WINDOW_MS || 300000));
+ const INSTRUCTOR_SHARE_PERCENT = Math.max(0, Math.min(100, Number(process.env.INSTRUCTOR_SHARE_PERCENT || 75)));
+ const PAYMENT_SANDBOX = /^(1|true|yes)$/i.test(process.env.PAYMENT_SANDBOX || '');
+@@ -263,6 +266,79 @@ async function paynowWebhook(request) {
+   }
+ }
+ 
++// ---- Instructor TOTP 2FA ----
++// A challenge row (mfa_challenges) is how a password check that has
++// succeeded, but isn't yet allowed a session, gets carried across the
++// extra round-trip to /api/auth/mfa/verify — the alternative (trusting a
++// client-held JWT asserting "password already checked") is exactly the
++// kind of thing that becomes a bypass if any other code path ever mints
++// one by mistake, so a server-side row with its own 10-minute expiry is
++// the safer default here.
++function genBackupCodes(n = 8) {
++  const codes = [];
++  for (let i = 0; i < n; i++) { const raw = crypto.randomBytes(5).toString('hex').toUpperCase(); codes.push(raw.slice(0, 5) + '-' + raw.slice(5, 10)); }
++  return codes;
++}
++async function hashBackupCodes(codes) {
++  return Promise.all(codes.map(async (c) => ({ hash: await bcrypt.hash(c, 10), used_at: null })));
++}
++async function consumeBackupCode(user, code) {
++  const list = Array.isArray(user.totp_backup_codes) ? user.totp_backup_codes : [];
++  const clean = String(code || '').trim().toUpperCase();
++  if (!clean) return false;
++  for (let i = 0; i < list.length; i++) {
++    const entry = list[i];
++    if (entry.used_at) continue;
++    if (await bcrypt.compare(clean, entry.hash)) {
++      list[i] = { ...entry, used_at: new Date().toISOString() };
++      await db.query('UPDATE users SET totp_backup_codes=$2::jsonb WHERE id=$1', [user.id, JSON.stringify(list)]);
++      return true;
++    }
++  }
++  return false;
++}
++async function createMfaChallenge(userId, kind, secret = null) {
++  const id = uuid();
++  await db.query(`INSERT INTO mfa_challenges(id,user_id,kind,secret,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')`, [id, userId, kind, secret]);
++  return id;
++}
++async function loadMfaChallenge(challengeId) {
++  const r = await db.query('SELECT * FROM mfa_challenges WHERE id=$1 AND consumed_at IS NULL AND expires_at>now()', [challengeId]);
++  return r.rows[0] || null;
++}
++async function consumeMfaChallenge(id) {
++  await db.query('UPDATE mfa_challenges SET consumed_at=now() WHERE id=$1', [id]);
++}
++// Shared by /api/auth/mfa/verify's two success paths (setup and login) —
++// the original inline login/register session code is left untouched below
++// to keep this change's diff minimal against existing, already-working
++// behaviour.
++async function issueSession(request, user, portal) {
++  const token = crypto.randomBytes(32).toString('hex'), sid = uuid(), seconds = SESSION_DAYS * 86400;
++  await db.query(`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+($4||' seconds')::interval)`, [sid, user.id, sha(token), seconds]);
++  await audit(user, 'auth.login', 'user', user.id, { portal: portal || 'public' });
++  await securityEvent(request, 'auth.login_succeeded', user.id, { portal: portal || 'public' });
++  return { headers: { 'Set-Cookie': setSessionCookieHeader(token, seconds) }, user: publicUser(user) };
++}
++// Called the moment a password check succeeds for an instructor, from both
++// /api/auth/login and (for a brand-new instructor account)
++// /api/auth/register — same gate either way, so there's no gap where a
++// freshly-registered instructor gets a full session with 2FA only asked
++// for on their *next* login.
++async function startInstructorAuth(request, user) {
++  if (!user.totp_secret) {
++    const secret = authenticator.generateSecret();
++    const challengeId = await createMfaChallenge(user.id, 'setup', secret);
++    const otpauthUrl = authenticator.keyuri(user.email, 'EduQuinn', secret);
++    let qrDataUrl = null; try { qrDataUrl = await QRCode.toDataURL(otpauthUrl); } catch {}
++    await securityEvent(request, 'auth.mfa_setup_started', user.id, {});
++    return json(200, { mfaSetupRequired: true, challengeId, secret, otpauthUrl, qrDataUrl });
++  }
++  const challengeId = await createMfaChallenge(user.id, 'login');
++  await securityEvent(request, 'auth.mfa_challenge_started', user.id, {});
++  return json(200, { mfaRequired: true, challengeId });
++}
++
+ async function receiveSupport(request) {
+   try {
+     const data = await readJson(request, 25000), clean = (v) => String(v || '').trim();
+@@ -328,18 +404,87 @@ async function handle(request) {
+       if (role === 'instructor' && !expertise) return json(400, { message: 'Please select your primary expertise.' });
+       const exists = await db.query('SELECT 1 FROM users WHERE lower(email)=lower($1)', [email]); if (exists.rowCount) return json(409, { message: 'An account with this email address already exists.' });
+       const id = uuid(), hash = await bcrypt.hash(password, 12); await db.query('INSERT INTO users(id,name,email,password_hash,role,status,expertise) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, name, email, hash, role, 'active', role === 'instructor' ? expertise : null]);
+-      const token = crypto.randomBytes(32).toString('hex'), sid = uuid(), seconds = SESSION_DAYS * 86400; await db.query(`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+($4||' seconds')::interval)`, [sid, id, sha(token), seconds]); await audit({ id }, 'account.registered', 'user', id, { role });
+-      return json(201, { user: { id, name, email, role, status: 'active', expertise: role === 'instructor' ? expertise : '' } }, { 'Set-Cookie': setSessionCookieHeader(token, seconds) });
++      await audit({ id }, 'account.registered', 'user', id, { role });
++      // Instructors go straight into the same 2FA enrolment gate a login
++      // would hit (totp_secret is always null on a brand-new row) — no
++      // session either way until that completes.
++      if (role === 'instructor') return startInstructorAuth(request, { id, email, totp_secret: null });
++      // Students: no session yet — a verification link has to be clicked
++      // first. Reuses the existing Brevo integration (sendBrevoEmail), the
++      // same one course-announcement emails already go through.
++      const verifyToken = crypto.randomBytes(32).toString('hex');
++      await db.query(`UPDATE users SET email_verify_token_hash=$2,email_verify_expires_at=now()+interval '24 hours' WHERE id=$1`, [id, sha(verifyToken)]);
++      await sendBrevoEmail({ userId: id, email, name, subject: 'Verify your EduQuinn email address', text: `Hi ${name},\n\nWelcome to EduQuinn! Confirm your email address to activate your account:\n\n${APP_BASE_URL}/verify-email.html?token=${verifyToken}\n\nThis link expires in 24 hours. If you didn't create this account, you can ignore this email.`, template: 'email_verification' });
++      return json(201, { pendingVerification: true, email, message: 'Check your email to verify your address, then log in.' });
+     } catch (e) { return dbFail(e); }
+   }
+   if (url.pathname === '/api/auth/login' && method === 'POST') {
+     try {
+       const x = await readJson(request), email = String(x.email || '').trim().toLowerCase(), password = String(x.password || ''); const r = await db.query('SELECT * FROM users WHERE lower(email)=lower($1)', [email]); const u = r.rows[0]; if (!u || !(await bcrypt.compare(password, u.password_hash))) { await securityEvent(request, 'auth.login_failed', u?.id || null, { email }); return json(401, { message: 'The email address or password is incorrect.' }); } if (u.status !== 'active') { await securityEvent(request, 'auth.login_blocked', u.id, { status: u.status }); return json(403, { message: 'This account is not active.' }); }
+       if (x.portal === 'public' && u.role === 'admin') return json(403, { message: 'Administrator sign-in is not available from the public login page.' }); if (x.portal === 'admin' && u.role !== 'admin') return json(403, { message: 'This account is not authorised for administration.' }); if (x.portal === 'public' && x.expectedRole && u.role !== x.expectedRole) return json(403, { message: x.expectedRole === 'student' ? 'This is not a student account. Choose Teacher login if you are an instructor.' : 'This is not a teacher account. Choose Student login if you are a learner.' });
++      if (u.role === 'student' && !u.email_verified) return json(403, { message: 'Please verify your email address before logging in. Check your inbox, or request a new link below.', needsVerification: true, email: u.email });
++      if (u.role === 'instructor') return startInstructorAuth(request, u);
+       const token = crypto.randomBytes(32).toString('hex'), sid = uuid(), seconds = SESSION_DAYS * 86400; await db.query(`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+($4||' seconds')::interval)`, [sid, u.id, sha(token), seconds]); await audit(u, 'auth.login', 'user', u.id, { portal: x.portal || 'public' }); await securityEvent(request, 'auth.login_succeeded', u.id, { portal: x.portal || 'public' });
+       return json(200, { user: publicUser(u) }, { 'Set-Cookie': setSessionCookieHeader(token, seconds) });
+     } catch (e) { return dbFail(e); }
+   }
++  if (url.pathname === '/api/auth/mfa/verify' && method === 'POST') {
++    try {
++      const rl = await hitRate(`mfa:${clientIp(request)}`, MFA_RATE_LIMIT, RATE_WINDOW_MS);
++      if (!rl.ok) return json(429, { message: 'Too many attempts. Please try again shortly.', retryAfter: rl.retry }, { 'Retry-After': String(rl.retry) });
++      const x = await readJson(request), challengeId = String(x.challengeId || ''), code = String(x.code || '').trim();
++      if (!/^[0-9a-f-]{36}$/i.test(challengeId) || !code) return json(400, { message: 'Enter the 6-digit code from your authenticator app.' });
++      const challenge = await loadMfaChallenge(challengeId);
++      if (!challenge) return json(400, { message: 'This verification step has expired. Please sign in again.' });
++      const user = (await db.query('SELECT * FROM users WHERE id=$1', [challenge.user_id])).rows[0];
++      if (!user) return json(400, { message: 'This verification step has expired. Please sign in again.' });
++      const cleanCode = code.replace(/\s+/g, '');
++      if (challenge.kind === 'setup') {
++        let ok = false; try { ok = authenticator.check(cleanCode, challenge.secret); } catch {}
++        if (!ok) { await securityEvent(request, 'auth.mfa_setup_failed', user.id, {}); return json(401, { message: 'That code is incorrect. Double-check your authenticator app and try again.' }); }
++        const backupCodes = genBackupCodes(), hashed = await hashBackupCodes(backupCodes);
++        await db.query('UPDATE users SET totp_secret=$2,totp_backup_codes=$3::jsonb WHERE id=$1', [user.id, challenge.secret, JSON.stringify(hashed)]);
++        await consumeMfaChallenge(challenge.id);
++        await securityEvent(request, 'auth.mfa_enabled', user.id, {});
++        const sess = await issueSession(request, user, 'public');
++        return json(200, { user: sess.user, backupCodes }, sess.headers);
++      }
++      let ok = false; try { ok = authenticator.check(cleanCode, user.totp_secret); } catch {}
++      if (!ok) ok = await consumeBackupCode(user, cleanCode);
++      if (!ok) { await securityEvent(request, 'auth.mfa_failed', user.id, {}); return json(401, { message: 'That code is incorrect or expired.' }); }
++      await consumeMfaChallenge(challenge.id);
++      const sess = await issueSession(request, user, 'public');
++      return json(200, { user: sess.user }, sess.headers);
++    } catch (e) { return dbFail(e); }
++  }
++  if (url.pathname === '/api/auth/verify-email' && method === 'POST') {
++    try {
++      const x = await readJson(request), token = String(x.token || '').trim();
++      if (!token) return json(400, { message: 'Missing verification token.' });
++      const r = await db.query('SELECT id,email_verified FROM users WHERE email_verify_token_hash=$1 AND email_verify_expires_at>now()', [sha(token)]);
++      const u = r.rows[0];
++      if (!u) return json(400, { message: 'This verification link is invalid or has expired. Request a new one below.', expired: true });
++      if (!u.email_verified) { await db.query('UPDATE users SET email_verified=true,email_verify_token_hash=NULL,email_verify_expires_at=NULL WHERE id=$1', [u.id]); await audit({ id: u.id }, 'account.email_verified', 'user', u.id, {}); }
++      return json(200, { ok: true });
++    } catch (e) { return dbFail(e); }
++  }
++  if (url.pathname === '/api/auth/resend-verification' && method === 'POST') {
++    try {
++      const rl = await hitRate(`verify-resend:${clientIp(request)}`, 5, RATE_WINDOW_MS);
++      if (!rl.ok) return json(429, { message: 'Too many requests. Please try again shortly.', retryAfter: rl.retry }, { 'Retry-After': String(rl.retry) });
++      const x = await readJson(request), email = String(x.email || '').trim().toLowerCase();
++      if (validEmail(email)) {
++        const u = (await db.query(`SELECT id,name,email,email_verified FROM users WHERE lower(email)=lower($1) AND role='student'`, [email])).rows[0];
++        if (u && !u.email_verified) {
++          const verifyToken = crypto.randomBytes(32).toString('hex');
++          await db.query(`UPDATE users SET email_verify_token_hash=$2,email_verify_expires_at=now()+interval '24 hours' WHERE id=$1`, [u.id, sha(verifyToken)]);
++          await sendBrevoEmail({ userId: u.id, email: u.email, name: u.name, subject: 'Verify your EduQuinn email address', text: `Hi ${u.name},\n\nConfirm your email address to activate your account:\n\n${APP_BASE_URL}/verify-email.html?token=${verifyToken}\n\nThis link expires in 24 hours.`, template: 'email_verification' });
++        }
++      }
++      // Same response either way — doesn't reveal whether that email is registered.
++      return json(200, { message: 'If that email needs verifying, a new link is on its way.' });
++    } catch (e) { return dbFail(e); }
++  }
+   if (url.pathname === '/api/auth/logout' && method === 'POST') {
+     try { const token = cookieMap(request).eq_session; if (token) await db.query('DELETE FROM sessions WHERE token_hash=$1', [sha(token)]); return json(200, { ok: true }, { 'Set-Cookie': clearSessionCookieHeader() }); } catch (e) { return json(200, { ok: true }, { 'Set-Cookie': clearSessionCookieHeader() }); }
+   }
+diff --git a/db/schema.sql b/db/schema.sql
+index db3f77e..9166a9a 100644
+--- a/db/schema.sql
++++ b/db/schema.sql
+@@ -492,3 +492,37 @@ CREATE TABLE IF NOT EXISTS rate_limits (
+   count integer NOT NULL DEFAULT 0
+ );
+ CREATE INDEX IF NOT EXISTS rate_limits_window_idx ON rate_limits(window_start);
++
++-- Phase 18: instructor TOTP 2FA + student email verification.
++--   - totp_secret: base32 TOTP secret, set once an instructor completes
++--     enrolment (null until then — its presence is what tells /api/auth/login
++--     whether to start a "setup" or a "login" MFA challenge).
++--   - totp_backup_codes: jsonb array of {hash, used_at} — one-time recovery
++--     codes shown to the instructor once at enrolment, bcrypt-hashed at rest
++--     exactly like password_hash; used_at is set the first time one is spent.
++--   - email_verify_token_hash/_expires_at: a single in-flight verification
++--     token per user (sha256 of the token mailed to them, never the token
++--     itself) — reused by both the original verification email and any
++--     resend, and cleared once consumed.
++ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text;
++ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_backup_codes jsonb NOT NULL DEFAULT '[]'::jsonb;
++ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_token_hash char(64);
++ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verify_expires_at timestamptz;
++
++-- One row per in-flight MFA challenge, created the moment a password check
++-- succeeds for an instructor and consumed (or left to expire) by
++-- /api/auth/mfa/verify. Keeping this server-side, rather than trusting a
++-- client-held token, is what lets a "setup" challenge safely carry the
++-- not-yet-saved TOTP secret: nothing is persisted onto the user row until
++-- the instructor proves they can already generate a matching code with it.
++CREATE TABLE IF NOT EXISTS mfa_challenges (
++  id uuid PRIMARY KEY,
++  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++  kind varchar(10) NOT NULL CHECK (kind IN ('setup','login')),
++  secret text,
++  expires_at timestamptz NOT NULL,
++  consumed_at timestamptz,
++  created_at timestamptz NOT NULL DEFAULT now()
++);
++CREATE INDEX IF NOT EXISTS mfa_challenges_user_idx ON mfa_challenges(user_id);
++CREATE INDEX IF NOT EXISTS mfa_challenges_expiry_idx ON mfa_challenges(expires_at);
+diff --git a/package.json b/package.json
+index 275bfdc..be0578f 100644
+--- a/package.json
++++ b/package.json
+@@ -21,6 +21,8 @@
+     "bcryptjs": "^2.4.3",
+     "pg": "^8.12.0",
+     "paynow": "^1.1.5",
+-    "@supabase/supabase-js": "^2.45.0"
++    "@supabase/supabase-js": "^2.45.0",
++    "otplib": "^12.0.0",
++    "qrcode": "^1.5.0"
+   }
+ }
+diff --git a/public/auth.js b/public/auth.js
+index 9ccb528..591a3dc 100644
+--- a/public/auth.js
++++ b/public/auth.js
+@@ -8,8 +8,15 @@ function session(){return parse(localStorage.getItem(SESSION_KEY),null)}
+ function cache(user){if(user)localStorage.setItem(SESSION_KEY,JSON.stringify(user));else localStorage.removeItem(SESSION_KEY)}
+ async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});let x={};try{x=await r.json()}catch{}if(!r.ok)throw Object.assign(new Error(x.message||'Request failed'),{status:r.status,data:x});return x}
+ async function refresh(){try{const x=await api('/api/auth/session');cache(x.user||null);return x.user||null}catch{cache(null);return null}}
+-async function login(email,password,portal='public',expectedRole=''){try{const x=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email,password,portal,expectedRole})});cache(x.user);return {ok:true,user:x.user}}catch(e){return {ok:false,message:e.message}}}
+-async function register(data){try{const x=await api('/api/auth/register',{method:'POST',body:JSON.stringify(data)});cache(x.user);return {ok:true,user:x.user}}catch(e){return {ok:false,message:e.message}}}
++// login/register can now come back without a user: a student awaiting email
++// verification (pendingVerification) or an instructor mid-2FA
++// (mfaSetupRequired/mfaRequired) both return 2xx with no session yet, so the
++// caller gets the whole response and decides what to do - only a response
++// that actually carries a user gets cached as the active session. A
++// needsVerification/4xx failure still carries useful fields (email) via
++// e.data, so those are spread in too rather than losing them.
++async function login(email,password,portal='public',expectedRole=''){try{const x=await api('/api/auth/login',{method:'POST',body:JSON.stringify({email,password,portal,expectedRole})});if(x.user)cache(x.user);return {ok:true,...x}}catch(e){return {ok:false,message:e.message,...(e.data||{})}}}
++async function register(data){try{const x=await api('/api/auth/register',{method:'POST',body:JSON.stringify(data)});if(x.user)cache(x.user);return {ok:true,...x}}catch(e){return {ok:false,message:e.message,...(e.data||{})}}}
+ async function logout(){cache(null);try{await api('/api/auth/logout',{method:'POST',body:'{}'})}catch{}location.replace('/login.html')}
+ function homeFor(role){return role==='admin'?'/admin.html':role==='instructor'?'/instructor.html':'/my-learning.html'}
+ function can(roles){const s=session();return !!s&&roles.includes(s.role)}
+diff --git a/public/login.html b/public/login.html
+index bddc1f9..bbf37a4 100644
+--- a/public/login.html
++++ b/public/login.html
+@@ -1,3 +1 @@
+-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Log in — EduQuinn</title><link rel="stylesheet" href="/styles.css"><script src="/icons.js"></script><script src="/auth.js"></script><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/app-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632"></head><body class="auth-body"><a class="brand auth-brand" href="/"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></a><main class="auth-card auth-login-card"><div class="auth-form-panel"><p class="eyebrow">WELCOME BACK</p><h1>How are you logging in?</h1><p class="auth-intro">Choose your account type. EduQuinn will only open the tools assigned to that role.</p><div class="role-login-choice" id="roleChoice"><button type="button" data-role="student"><span data-icon="graduation"></span><div><b>Student</b><small>Learning, live classes and purchases</small></div></button><button type="button" data-role="instructor"><span data-icon="teacher"></span><div><b>Teacher</b><small>Courses, students, messages and earnings</small></div></button></div><form id="authForm" hidden><div class="selected-login-role"><button type="button" id="changeRole">← Change</button><strong id="selectedRoleLabel"></strong></div><label>Email address<input id="email" type="email" required autocomplete="username" placeholder="you@example.com"></label><label>Password<input id="password" type="password" required autocomplete="current-password" placeholder="Enter your password"></label><div class="auth-row"><label class="check"><input type="checkbox"> Remember me</label><a href="/forgot-password.html">Forgot password?</a></div><p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Log in securely</button></form><p>New to EduQuinn? <a href="/signup.html">Create an account</a></p></div></main><script>
+-(()=>{const form=document.getElementById('authForm'),choice=document.getElementById('roleChoice'),email=document.getElementById('email'),password=document.getElementById('password'),err=document.getElementById('authError'),btn=form.querySelector('button[type="submit"]'),label=document.getElementById('selectedRoleLabel');let role='';function choose(r){role=r;choice.hidden=true;form.hidden=false;label.textContent=r==='student'?'Student login':'Teacher login';email.focus()}document.querySelectorAll('[data-role]').forEach(b=>b.onclick=()=>choose(b.dataset.role));document.getElementById('changeRole').onclick=()=>{role='';form.hidden=true;choice.hidden=false;err.textContent=''};const q=new URLSearchParams(location.search);if(['student','instructor'].includes(q.get('role')))choose(q.get('role'));form.addEventListener('submit',async e=>{e.preventDefault();err.textContent='';btn.disabled=true;btn.textContent='Signing in…';const result=await EduQuinnAuth.login(email.value,password.value,'public',role);btn.disabled=false;btn.textContent='Log in securely';if(!result.ok){err.textContent=result.message;return}const next=q.get('next');location.replace(next||EduQuinnAuth.homeFor(result.user.role))})})();
+-</script><script src="/pwa.js"></script></body></html>
+\ No newline at end of file
++<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Log in — EduQuinn</title><link rel="stylesheet" href="/styles.css"><script src="/icons.js"></script><script src="/auth.js"></script><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/app-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632"></head><body class="auth-body"><a class="brand auth-brand" href="/"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></a><main class="auth-card auth-login-card"><div class="auth-form-panel"><p class="eyebrow">WELCOME BACK</p><h1>How are you logging in?</h1><p class="auth-intro">Choose your account type. EduQuinn will only open the tools assigned to that role.</p><div class="role-login-choice" id="roleChoice"><button type="button" data-role="student"><span data-icon="graduation"></span><div><b>Student</b><small>Learning, live classes and purchases</small></div></button><button type="button" data-role="instructor"><span data-icon="teacher"></span><div><b>Teacher</b><small>Courses, students, messages and earnings</small></div></button></div><form id="authForm" hidden><div class="selected-login-role"><button type="button" id="changeRole">← Change</button><strong id="selectedRoleLabel"></strong></div><label>Email address<input id="email" type="email" required autocomplete="username" placeholder="you@example.com"></label><label>Password<input id="password" type="password" required autocomplete="current-password" placeholder="Enter your password"></label><div class="auth-row"><label class="check"><input type="checkbox"> Remember me</label><a href="/forgot-password.html">Forgot password?</a></div><p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Log in securely</button></form><p>New to EduQuinn? <a href="/signup.html">Create an account</a></p></div></main><script src="/mfa.js"></script><script src="/login.js"></script><script src="/pwa.js"></script></body></html>
+\ No newline at end of file
+diff --git a/public/login.js b/public/login.js
+new file mode 100644
+index 0000000..0367fdb
+--- /dev/null
++++ b/public/login.js
+@@ -0,0 +1,42 @@
++// Extracted out of login.html's own inline <script> (it was previously
++// baked into the page's CSP via a sha256 hash — moving it to an external
++// /self file sidesteps needing to keep that hash in sync every time this
++// logic changes) and extended to handle the two new non-immediate login
++// outcomes: a student who still needs to verify their email, and an
++// instructor who needs to go through mfa.js first.
++(function () {
++  'use strict';
++  const form = document.getElementById('authForm'), choice = document.getElementById('roleChoice'), email = document.getElementById('email'), password = document.getElementById('password'), err = document.getElementById('authError'), btn = form.querySelector('button[type="submit"]'), label = document.getElementById('selectedRoleLabel');
++  let role = '';
++  function choose(r) { role = r; choice.hidden = true; form.hidden = false; label.textContent = r === 'student' ? 'Student login' : 'Teacher login'; email.focus(); }
++  document.querySelectorAll('[data-role]').forEach(function (b) { b.onclick = function () { choose(b.dataset.role); }; });
++  document.getElementById('changeRole').onclick = function () { role = ''; form.hidden = true; choice.hidden = false; err.textContent = ''; };
++  const q = new URLSearchParams(location.search);
++  if (['student', 'instructor'].includes(q.get('role'))) choose(q.get('role'));
++
++  function goHome(user) { const next = q.get('next'); location.replace(next || EduQuinnAuth.homeFor(user.role)); }
++
++  function showVerificationNotice(emailAddr) {
++    err.textContent = '';
++    let notice = document.getElementById('verifyNotice');
++    if (!notice) { notice = document.createElement('div'); notice.id = 'verifyNotice'; notice.className = 'auth-notice'; form.insertBefore(notice, err); }
++    notice.innerHTML = 'Please verify your email address before logging in. <button type="button" id="resendVerify">Resend verification email</button>';
++    document.getElementById('resendVerify').onclick = async function () {
++      const b = this; b.disabled = true; b.textContent = 'Sending…';
++      try { await EduQuinnAuth.api('/api/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email: emailAddr }) }); } catch {}
++      b.disabled = false; b.textContent = 'Email sent — check your inbox';
++    };
++  }
++
++  form.addEventListener('submit', async function (e) {
++    e.preventDefault(); err.textContent = ''; btn.disabled = true; btn.textContent = 'Signing in…';
++    const result = await EduQuinnAuth.login(email.value, password.value, 'public', role);
++    btn.disabled = false; btn.textContent = 'Log in securely';
++    if (!result.ok) {
++      if (result.needsVerification) { showVerificationNotice(result.email || email.value); return; }
++      err.textContent = result.message; return;
++    }
++    if (window.EduQuinnMfa && window.EduQuinnMfa.handleMfaResponse(result, goHome)) return;
++    goHome(result.user);
++  });
++})();
+diff --git a/public/mfa.js b/public/mfa.js
+new file mode 100644
+index 0000000..f908b37
+--- /dev/null
++++ b/public/mfa.js
+@@ -0,0 +1,81 @@
++// Shared MFA step used by both login.html and signup.html: a password
++// check that succeeded for an instructor doesn't get a session straight
++// away (see /api/auth/mfa/verify on the server) - it returns here first,
++// as an overlay on top of whichever form triggered it, and only calls back
++// into that page's own redirect logic once a real session exists.
++(function () {
++  'use strict';
++  function el(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
++
++  function modalShell(title, bodyHtml) {
++    const modal = el(
++      '<div class="mfa-overlay" role="dialog" aria-modal="true">' +
++        '<div class="mfa-card"><h2>' + title + '</h2>' + bodyHtml + '</div>' +
++      '</div>'
++    );
++    document.body.appendChild(modal);
++    return modal;
++  }
++
++  function wireSubmit(modal, challengeId, onSession, isSetup) {
++    const input = modal.querySelector('#mfaCode'), err = modal.querySelector('#mfaError'), btn = modal.querySelector('#mfaSubmit');
++    if (input) input.focus();
++    const resetBtn = () => { btn.disabled = false; btn.textContent = isSetup ? 'Confirm and enable' : 'Verify'; };
++    const submit = async () => {
++      err.textContent = ''; btn.disabled = true; btn.textContent = 'Verifying…';
++      try {
++        const r = await fetch('/api/auth/mfa/verify', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challengeId: challengeId, code: input.value }) });
++        let x = {}; try { x = await r.json(); } catch {}
++        resetBtn();
++        if (!r.ok) { err.textContent = x.message || 'That code is incorrect or expired.'; return; }
++        if (x.backupCodes && x.backupCodes.length) { showBackupCodes(modal, x.backupCodes, function () { modal.remove(); onSession(x.user); }); return; }
++        modal.remove(); onSession(x.user);
++      } catch { resetBtn(); err.textContent = 'Something went wrong. Please try again.'; }
++    };
++    btn.addEventListener('click', submit);
++    if (input) input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
++  }
++
++  function showBackupCodes(modal, codes, onContinue) {
++    modal.querySelector('.mfa-card').innerHTML =
++      '<h2>Save your backup codes</h2>' +
++      '<p>If you ever lose access to your authenticator app, use one of these one-time codes to sign in instead. Save them somewhere safe - they will not be shown again.</p>' +
++      '<ul class="mfa-backup-codes">' + codes.map(function (c) { return '<li><code>' + c + '</code></li>'; }).join('') + '</ul>' +
++      '<button type="button" class="btn btn-primary btn-full" id="mfaContinue">I\'ve saved these — continue</button>';
++    modal.querySelector('#mfaContinue').addEventListener('click', onContinue);
++  }
++
++  function showSetup(data, onSession) {
++    const modal = modalShell('Set up two-factor authentication', '' +
++      '<p>EduQuinn requires instructors to protect their account with an authenticator app (Google Authenticator, Authy, 1Password, etc).</p>' +
++      (data.qrDataUrl ? '<img class="mfa-qr" src="' + data.qrDataUrl + '" alt="Scan this QR code in your authenticator app">' : '') +
++      '<p>Can\'t scan it? Enter this code manually in your app:</p>' +
++      '<code class="mfa-secret">' + data.secret + '</code>' +
++      '<label>Enter the 6-digit code from your app<input type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" id="mfaCode"></label>' +
++      '<p class="form-error" id="mfaError" role="alert"></p>' +
++      '<button type="button" class="btn btn-primary btn-full" id="mfaSubmit">Confirm and enable</button>'
++    );
++    wireSubmit(modal, data.challengeId, onSession, true);
++  }
++
++  function showChallenge(data, onSession) {
++    const modal = modalShell('Enter your authentication code', '' +
++      '<p>Enter the 6-digit code from your authenticator app, or one of your backup codes if you do not have it.</p>' +
++      '<label>Authentication code<input type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" id="mfaCode"></label>' +
++      '<p class="form-error" id="mfaError" role="alert"></p>' +
++      '<button type="button" class="btn btn-primary btn-full" id="mfaSubmit">Verify</button>'
++    );
++    wireSubmit(modal, data.challengeId, onSession, false);
++  }
++
++  // Returns true if `data` (the raw login/register API response) was an MFA
++  // step and has been handled (an overlay is now showing); false means the
++  // caller should carry on treating it as an ordinary response.
++  function handleMfaResponse(data, onSession) {
++    if (data && data.mfaSetupRequired) { showSetup(data, onSession); return true; }
++    if (data && data.mfaRequired) { showChallenge(data, onSession); return true; }
++    return false;
++  }
++
++  window.EduQuinnMfa = { handleMfaResponse: handleMfaResponse };
++})();
+diff --git a/public/signup.html b/public/signup.html
+index a8ec4bf..ff2412f 100644
+--- a/public/signup.html
++++ b/public/signup.html
+@@ -51,38 +51,4 @@
+     </a>
+   </span>
+ </label>
+-      <p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Create account</button></form><p>Already registered? <a href="/login.html">Log in</a></p></main><script>
+-(()=>{
+-  const form=document.getElementById('authForm');
+-  const nameInput=document.getElementById('name');
+-  const emailInput=document.getElementById('email');
+-  const passwordInput=document.getElementById('password');
+-  const roleSelect=document.getElementById('role');
+-  const expertiseWrap=document.getElementById('expertiseWrap');
+-  const expertiseSelect=document.getElementById('expertise');
+-  const errorBox=document.getElementById('authError');
+-  const btn=form?.querySelector('button[type="submit"]');
+-  const termsLink=document.getElementById('termsLink');
+-  const termsLabel=document.getElementById('termsLabel');
+-  if(!form||!nameInput||!emailInput||!passwordInput||!roleSelect||!expertiseWrap||!expertiseSelect||!errorBox||!btn){console.error('EduQuinn signup form is incomplete.');return;}
+-  const q=new URLSearchParams(location.search);
+-  if(['student','instructor'].includes(q.get('role'))) roleSelect.value=q.get('role');
+-  const syncRole=()=>{
+-    const isInstructor=roleSelect.value==='instructor';
+-    expertiseWrap.hidden=!isInstructor;
+-    expertiseSelect.required=isInstructor;
+-    if(termsLink&&termsLabel){
+-      termsLink.href=isInstructor?'/instructor-policy.html':'/privacy-policy.html';
+-      termsLabel.textContent=isInstructor?'EduQuinn Instructor Terms & Privacy Policy':'EduQuinn Terms & Privacy Policy';
+-    }
+-  };
+-  roleSelect.addEventListener('change',syncRole);syncRole();
+-  form.addEventListener('submit',async e=>{
+-    e.preventDefault();errorBox.textContent='';btn.disabled=true;btn.textContent='Creating account…';
+-    const result=await EduQuinnAuth.register({name:nameInput.value,email:emailInput.value,password:passwordInput.value,role:roleSelect.value,expertise:roleSelect.value==='instructor'?expertiseSelect.value:''});
+-    btn.disabled=false;btn.textContent='Create account';
+-    if(!result.ok){errorBox.textContent=result.message;return;}
+-    location.replace(result.user.role==='instructor'?'/instructor-onboarding.html':EduQuinnAuth.homeFor(result.user.role));
+-  });
+-})();
+-</script><script src="/pwa.js"></script></body></html>
++      <p class="form-error" id="authError" role="alert"></p><button type="submit" class="btn btn-primary btn-full">Create account</button></form><p>Already registered? <a href="/login.html">Log in</a></p></main><script src="/mfa.js"></script><script src="/signup.js"></script><script src="/pwa.js"></script></body></html>
+diff --git a/public/signup.js b/public/signup.js
+new file mode 100644
+index 0000000..5865c18
+--- /dev/null
++++ b/public/signup.js
+@@ -0,0 +1,55 @@
++// Extracted out of signup.html's own inline <script> (same CSP-hash reason
++// as login.js) and extended for the two new non-immediate outcomes: a new
++// student account now waits on email verification instead of logging in
++// straight away, and a new instructor account goes through the same
++// mfa.js 2FA-enrolment step a login would.
++(function () {
++  'use strict';
++  const form = document.getElementById('authForm');
++  const nameInput = document.getElementById('name');
++  const emailInput = document.getElementById('email');
++  const passwordInput = document.getElementById('password');
++  const roleSelect = document.getElementById('role');
++  const expertiseWrap = document.getElementById('expertiseWrap');
++  const expertiseSelect = document.getElementById('expertise');
++  const errorBox = document.getElementById('authError');
++  const btn = form && form.querySelector('button[type="submit"]');
++  const termsLink = document.getElementById('termsLink');
++  const termsLabel = document.getElementById('termsLabel');
++  if (!form || !nameInput || !emailInput || !passwordInput || !roleSelect || !expertiseWrap || !expertiseSelect || !errorBox || !btn) { console.error('EduQuinn signup form is incomplete.'); return; }
++  const q = new URLSearchParams(location.search);
++  if (['student', 'instructor'].includes(q.get('role'))) roleSelect.value = q.get('role');
++  function syncRole() {
++    const isInstructor = roleSelect.value === 'instructor';
++    expertiseWrap.hidden = !isInstructor;
++    expertiseSelect.required = isInstructor;
++    if (termsLink && termsLabel) {
++      termsLink.href = isInstructor ? '/instructor-policy.html' : '/privacy-policy.html';
++      termsLabel.textContent = isInstructor ? 'EduQuinn Instructor Terms & Privacy Policy' : 'EduQuinn Terms & Privacy Policy';
++    }
++  }
++  roleSelect.addEventListener('change', syncRole); syncRole();
++
++  function showCheckEmail(emailAddr) {
++    form.hidden = true;
++    let notice = document.getElementById('checkEmailNotice');
++    if (!notice) { notice = document.createElement('div'); notice.id = 'checkEmailNotice'; notice.className = 'auth-notice'; form.parentNode.insertBefore(notice, form); }
++    notice.innerHTML = 'We\'ve sent a verification link to <strong>' + emailAddr + '</strong>. Click it, then <a href="/login.html">log in</a>.<br><button type="button" id="resendVerify">Resend verification email</button>';
++    document.getElementById('resendVerify').onclick = async function () {
++      const b = this; b.disabled = true; b.textContent = 'Sending…';
++      try { await EduQuinnAuth.api('/api/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email: emailAddr }) }); } catch {}
++      b.disabled = false; b.textContent = 'Email sent — check your inbox';
++    };
++  }
++
++  form.addEventListener('submit', async function (e) {
++    e.preventDefault(); errorBox.textContent = ''; btn.disabled = true; btn.textContent = 'Creating account…';
++    const emailValue = emailInput.value;
++    const result = await EduQuinnAuth.register({ name: nameInput.value, email: emailValue, password: passwordInput.value, role: roleSelect.value, expertise: roleSelect.value === 'instructor' ? expertiseSelect.value : '' });
++    btn.disabled = false; btn.textContent = 'Create account';
++    if (!result.ok) { errorBox.textContent = result.message; return; }
++    if (result.pendingVerification) { showCheckEmail(result.email || emailValue); return; }
++    if (window.EduQuinnMfa && window.EduQuinnMfa.handleMfaResponse(result, function () { location.replace('/instructor-onboarding.html'); })) return;
++    if (result.user) location.replace(result.user.role === 'instructor' ? '/instructor-onboarding.html' : EduQuinnAuth.homeFor(result.user.role));
++  });
++})();
+diff --git a/public/styles.css b/public/styles.css
+index cd49272..c4af319 100644
+--- a/public/styles.css
++++ b/public/styles.css
+@@ -2827,3 +2827,40 @@ header,
+     display:inline-flex!important;
+   }
+ }
++
++/* Instructor 2FA overlay (mfa.js) and the student email-verification
++   notices on login/signup/verify-email. Kept together since both are part
++   of the same auth-hardening pass. */
++.mfa-overlay{
++  position:fixed;inset:0;background:rgba(8,7,5,.55);z-index:1000;
++  display:grid;place-items:center;padding:20px;
++}
++.mfa-card{
++  background:#fff;border-radius:16px;padding:28px 26px;max-width:380px;width:100%;
++  max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);
++}
++.mfa-card h2{margin:0 0 12px;font-size:20px;line-height:1.25}
++.mfa-card p{margin:0 0 14px;font-size:14px;color:#444;line-height:1.5}
++.mfa-card label{display:block;margin:0 0 14px;font-size:13px;font-weight:700}
++.mfa-card input{
++  display:block;width:100%;margin-top:6px;padding:12px 14px;border-radius:10px;
++  border:1px solid var(--line);font-size:18px;letter-spacing:4px;text-align:center;
++}
++.mfa-qr{display:block;width:180px;height:180px;margin:0 auto 14px;border-radius:8px;border:1px solid var(--line)}
++.mfa-secret{
++  display:block;text-align:center;background:var(--paper);border:1px dashed var(--line);
++  border-radius:8px;padding:10px;margin:0 0 14px;font-size:15px;letter-spacing:2px;word-break:break-all;
++}
++.mfa-backup-codes{list-style:none;margin:0 0 18px;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px}
++.mfa-backup-codes code{
++  display:block;text-align:center;background:var(--paper);border:1px solid var(--line);
++  border-radius:8px;padding:8px;font-size:14px;letter-spacing:1px;
++}
++.auth-notice{
++  background:var(--paper);border:1px solid var(--line);border-radius:10px;
++  padding:14px 16px;margin:0 0 16px;font-size:14px;line-height:1.5;
++}
++.auth-notice a,.auth-notice button{
++  background:none;border:none;color:var(--burgundy);font-weight:700;cursor:pointer;
++  padding:0;font-size:inherit;text-decoration:underline;
++}
+diff --git a/public/verify-email.html b/public/verify-email.html
+new file mode 100644
+index 0000000..ca325cb
+--- /dev/null
++++ b/public/verify-email.html
+@@ -0,0 +1 @@
++<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify your email — EduQuinn</title><link rel="stylesheet" href="/styles.css"><script src="/icons.js"></script><link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/app-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="theme-color" content="#702632"></head><body class="auth-body"><main class="verify-shell"><a class="brand" href="/"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></a><section class="verify-card"><p class="eyebrow">EMAIL VERIFICATION</p><h1 id="verifyHeading">Verifying your email…</h1><p id="verifyMessage">Hang on a moment.</p><div id="verifyActions"></div></section></main><script src="/verify-email.js"></script></body></html>
+diff --git a/public/verify-email.js b/public/verify-email.js
+new file mode 100644
+index 0000000..134e8a4
+--- /dev/null
++++ b/public/verify-email.js
+@@ -0,0 +1,51 @@
++// Landing page for the link mailed by /api/auth/register (student branch)
++// and /api/auth/resend-verification. Doesn't depend on auth.js - this page
++// has to work whether or not the visitor has an active session.
++(function () {
++  'use strict';
++  const heading = document.getElementById('verifyHeading'), message = document.getElementById('verifyMessage'), actions = document.getElementById('verifyActions');
++
++  function showResendForm(prefillEmail) {
++    actions.innerHTML =
++      '<label>Email address<input id="resendEmail" type="email" required autocomplete="email" value="' + (prefillEmail || '').replace(/"/g, '&quot;') + '" placeholder="you@example.com"></label>' +
++      '<button type="button" class="btn btn-primary btn-full" id="resendBtn">Send a new verification link</button>';
++    document.getElementById('resendBtn').onclick = async function () {
++      const emailInput = document.getElementById('resendEmail'), b = this;
++      if (!emailInput.value) { emailInput.focus(); return; }
++      b.disabled = true; b.textContent = 'Sending…';
++      try {
++        const r = await fetch('/api/auth/resend-verification', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: emailInput.value }) });
++        const x = await r.json().catch(function () { return {}; });
++        message.textContent = x.message || 'If that email needs verifying, a new link is on its way.';
++        actions.innerHTML = '';
++      } catch { b.disabled = false; b.textContent = 'Send a new verification link'; message.textContent = 'Something went wrong. Please try again.'; }
++    };
++  }
++
++  async function run() {
++    const token = new URLSearchParams(location.search).get('token');
++    if (!token) {
++      heading.textContent = 'Missing verification link';
++      message.textContent = 'This page needs the link from your verification email. If you need a new one, enter your email below.';
++      showResendForm('');
++      return;
++    }
++    try {
++      const r = await fetch('/api/auth/verify-email', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token }) });
++      const x = await r.json().catch(function () { return {}; });
++      if (r.ok && x.ok) {
++        heading.textContent = 'Your email is verified';
++        message.textContent = 'You can now log in to your EduQuinn account.';
++        actions.innerHTML = '<a class="btn btn-primary btn-full" href="/login.html">Log in</a>';
++        return;
++      }
++      heading.textContent = 'This link has expired';
++      message.textContent = x.message || 'This verification link is invalid or has expired. Enter your email below for a new one.';
++      showResendForm('');
++    } catch {
++      heading.textContent = 'Something went wrong';
++      message.textContent = 'We could not reach EduQuinn just now. Please try again in a moment.';
++    }
++  }
++  run();
++})();
+-- 
+2.43.0
+

@@ -1,0 +1,482 @@
+From b6ad7f40de3303eec4640e8f1eed6415dd3ab9e1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 20:31:00 +0200
+Subject: [PATCH] Add refund policy + refund-safe instructor earnings hold
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- New /refund-policy.html: 14-day refund window, blocked once >20% of a
+  course is completed (both configurable via env), linked from the
+  homepage footer, Privacy Policy and Instructor Policy.
+- POST /api/orders/:id/refund-request now enforces that window/progress
+  rule server-side instead of accepting any paid order unconditionally;
+  GET /api/orders/mine annotates each order with refundEligible/reason so
+  the UI can show or hide the action without guessing.
+- Added a "Request refund" button to Purchase History (public/payments.js)
+  — there was previously no student-facing way to call the existing
+  refund-request endpoint at all.
+- instructor_earnings rows now start 'pending' with an available_at a few
+  days past the refund window (EARNINGS_HOLD_DAYS), instead of 'available'
+  the instant an order is paid, so a payout can never be approved while
+  the order could still be refunded out from under it. Every query that
+  sums "available" earnings (/api/instructor/earnings, /api/admin/payouts,
+  /api/admin/payouts/approve, the admin user profile) treats a matured
+  pending row as available on its own; the daily cron
+  (api/cron/maintenance.js) also flips the stored status once matured, so
+  what's displayed stays accurate.
+- Instructor Payouts page explains the hold and shows when pending funds
+  clear; checkout and Purchase History both surface the policy in plain
+  language.
+
+New env vars (api/index.js, .env.example): REFUND_WINDOW_DAYS (14),
+REFUND_MAX_PROGRESS_PERCENT (20), EARNINGS_HOLD_DAYS (17).
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ .env.example                  |  12 +++
+ api/cron/maintenance.js       |  11 +++
+ api/index.js                  |  61 +++++++++++---
+ db/schema.sql                 |  17 ++++
+ public/index.html             |   2 +-
+ public/instructor-policy.html |  17 ++--
+ public/payments.js            |   6 +-
+ public/privacy-policy.html    |   2 +-
+ public/refund-policy.html     | 144 ++++++++++++++++++++++++++++++++++
+ scripts/maintenance.js        |   2 +-
+ 10 files changed, 254 insertions(+), 20 deletions(-)
+ create mode 100644 public/refund-policy.html
+
+diff --git a/.env.example b/.env.example
+index 3df23eb..53fef79 100644
+--- a/.env.example
++++ b/.env.example
+@@ -45,6 +45,18 @@ CRON_SECRET=
+ 
+ INSTRUCTOR_SHARE_PERCENT=75
+ PAYMENT_SANDBOX=true
++# Refund policy: a student can self-service request a refund within this
++# many days of paying, as long as no course in the order is more than
++# REFUND_MAX_PROGRESS_PERCENT% complete. EARNINGS_HOLD_DAYS controls how
++# long an instructor's share of a sale is held before it's eligible for
++# payout — it defaults to REFUND_WINDOW_DAYS + 3 and should always be at
++# least as long as REFUND_WINDOW_DAYS, so a payout can never be approved
++# while the matching order could still be refunded. See db/schema.sql's
++# Phase 19 note and /refund-policy.html, which states these numbers to
++# students — update that page's text if you change these.
++REFUND_WINDOW_DAYS=14
++REFUND_MAX_PROGRESS_PERCENT=20
++EARNINGS_HOLD_DAYS=17
+ # Create a free merchant account at https://www.paynow.co.zw to get these. Both the
+ # "card" and "paynow" checkout options use this one integration — Paynow's own hosted
+ # payment page is where the customer chooses EcoCash, OneMoney, or a Visa/Mastercard card.
+diff --git a/api/cron/maintenance.js b/api/cron/maintenance.js
+index 4a7f109..726f8c0 100644
+--- a/api/cron/maintenance.js
++++ b/api/cron/maintenance.js
+@@ -29,12 +29,23 @@ module.exports = {
+         "DELETE FROM security_events WHERE created_at < now() - interval '180 days'"
+       );
+       const prunedRateLimits = await pruneRateLimits();
++      // Flip matured instructor_earnings rows from 'pending' to 'available'
++      // now that their refund-safe hold (see Phase 19 in db/schema.sql) has
++      // passed. Every query that sums "available" earnings already treats
++      // a still-pending-but-matured row as available on its own, so this
++      // is only here to keep the stored status column — which admin.js and
++      // the instructor payouts page both display directly — accurate,
++      // rather than leaving it stuck on "pending" forever.
++      const releasedEarnings = await db.query(
++        "UPDATE instructor_earnings SET status='available' WHERE status='pending' AND available_at<=now()"
++      );
+       return new Response(
+         JSON.stringify({
+           ok: true,
+           expiredSessionsDeleted: expiredSessions.rowCount,
+           oldSecurityEventsDeleted: oldSecurityEvents.rowCount,
+           rateLimitRowsPruned: prunedRateLimits,
++          earningsReleased: releasedEarnings.rowCount,
+         }),
+         { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } }
+       );
+diff --git a/api/index.js b/api/index.js
+index c90566c..40f8fed 100644
+--- a/api/index.js
++++ b/api/index.js
+@@ -46,6 +46,17 @@ const MFA_RATE_LIMIT = Math.max(3, Number(process.env.MFA_RATE_LIMIT || 8));
+ const RATE_WINDOW_MS = Math.max(60000, Number(process.env.RATE_WINDOW_MS || 300000));
+ const INSTRUCTOR_SHARE_PERCENT = Math.max(0, Math.min(100, Number(process.env.INSTRUCTOR_SHARE_PERCENT || 75)));
+ const PAYMENT_SANDBOX = /^(1|true|yes)$/i.test(process.env.PAYMENT_SANDBOX || '');
++// Refund policy: a student can self-service request a refund within
++// REFUND_WINDOW_DAYS of payment, provided no course in the order has
++// progressed past REFUND_MAX_PROGRESS_PERCENT (stops "complete it, then
++// refund it" abuse). EARNINGS_HOLD_DAYS controls how long an instructor's
++// earnings on an order sit in 'pending' before they're payable — it
++// defaults to a few days past the refund window so a payout can never be
++// approved while that order could still be refunded out from under it.
++const REFUND_WINDOW_DAYS = Math.max(1, Number(process.env.REFUND_WINDOW_DAYS || 14));
++const REFUND_MAX_PROGRESS_PERCENT = Math.max(0, Math.min(100, Number(process.env.REFUND_MAX_PROGRESS_PERCENT || 20)));
++const EARNINGS_HOLD_DAYS = Math.max(REFUND_WINDOW_DAYS, Number(process.env.EARNINGS_HOLD_DAYS || REFUND_WINDOW_DAYS + 3));
++const AVAILABLE_EARNINGS_SQL = "(status='available' OR (status='pending' AND available_at<=now()))";
+ 
+ const securityHeaders = {
+   'X-Content-Type-Options': 'nosniff',
+@@ -206,10 +217,13 @@ async function markOrderPaid(orderId, reference = '') {
+     await client.query("UPDATE orders SET status='paid',paid_at=now(),updated_at=now(),payment_reference=COALESCE(NULLIF($2,''),payment_reference) WHERE id=$1", [orderId, reference]);
+     await client.query("UPDATE payment_transactions SET status='paid',provider_reference=COALESCE(NULLIF($2,''),provider_reference),updated_at=now() WHERE order_id=$1 AND status<>'paid'", [orderId, reference]);
+     const items = await client.query(`SELECT oi.id order_item_id,oi.course_id,oi.unit_price_cents,c.instructor_id FROM order_items oi JOIN courses c ON c.id=oi.course_id WHERE oi.order_id=$1`, [orderId]);
+-    const share = INSTRUCTOR_SHARE_PERCENT;
++    const share = INSTRUCTOR_SHARE_PERCENT, availableAt = new Date(Date.now() + EARNINGS_HOLD_DAYS * 86400000);
+     for (const i of items.rows) {
+       await client.query(`INSERT INTO enrolments(id,student_id,course_id) VALUES($1,$2,$3) ON CONFLICT(student_id,course_id) DO NOTHING`, [uuid(), o.rows[0].student_id, i.course_id]);
+-      if (i.instructor_id) { const instructor = Math.floor((Number(i.unit_price_cents) * share) / 100), platform = Number(i.unit_price_cents) - instructor; await client.query(`INSERT INTO instructor_earnings(id,instructor_id,order_id,order_item_id,course_id,gross_cents,instructor_cents,platform_cents,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'available') ON CONFLICT(order_item_id) DO NOTHING`, [uuid(), i.instructor_id, orderId, i.order_item_id, i.course_id, i.unit_price_cents, instructor, platform]); }
++      // Earnings start 'pending' rather than 'available' — see the Phase 19
++      // note in db/schema.sql for why the hold has to outlast the refund
++      // window before an instructor can actually be paid this out.
++      if (i.instructor_id) { const instructor = Math.floor((Number(i.unit_price_cents) * share) / 100), platform = Number(i.unit_price_cents) - instructor; await client.query(`INSERT INTO instructor_earnings(id,instructor_id,order_id,order_item_id,course_id,gross_cents,instructor_cents,platform_cents,status,available_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9) ON CONFLICT(order_item_id) DO NOTHING`, [uuid(), i.instructor_id, orderId, i.order_item_id, i.course_id, i.unit_price_cents, instructor, platform, availableAt]); }
+     }
+     return (await client.query('SELECT * FROM orders WHERE id=$1', [orderId])).rows[0];
+   });
+@@ -723,7 +737,7 @@ async function handle(request) {
+   }
+   if (url.pathname === '/api/certificates/issue' && method === 'POST') { const u = await requireRole(request, ['student']); if (u instanceof Response) return u; try { const x = await readJson(request), courseId = String(x.courseId || ''); const e = await db.query('SELECT progress FROM enrolments WHERE student_id=$1 AND course_id=$2', [u.id, courseId]); if (!e.rowCount || Number(e.rows[0].progress) < 100) return json(409, { message: 'Complete all lessons before requesting a certificate.' }); const existing = await db.query('SELECT * FROM certificates WHERE student_id=$1 AND course_id=$2', [u.id, courseId]); if (existing.rowCount) return json(200, { certificate: existing.rows[0] }); const id = uuid(), code = 'EQ-CERT-' + new Date().getFullYear() + '-' + crypto.randomBytes(5).toString('hex').toUpperCase(); const r = await db.query('INSERT INTO certificates(id,certificate_code,student_id,course_id) VALUES($1,$2,$3,$4) RETURNING *', [id, code, u.id, courseId]); return json(201, { certificate: r.rows[0] }); } catch (e) { return dbFail(e); } }
+ 
+-  if (url.pathname === '/api/commerce/config' && method === 'GET') { const paynowReady = !!process.env.PAYNOW_INTEGRATION_ID && !!process.env.PAYNOW_INTEGRATION_KEY; return json(200, { currency: 'USD', instructorSharePercent: INSTRUCTOR_SHARE_PERCENT, paymentSandbox: PAYMENT_SANDBOX, methods: [{ id: 'card', label: 'Visa / Mastercard (via Paynow)', configured: paynowReady }, { id: 'paynow', label: 'EcoCash / OneMoney (via Paynow)', configured: paynowReady }, { id: 'bank_transfer', label: 'Bank transfer', configured: true }] }); }
++  if (url.pathname === '/api/commerce/config' && method === 'GET') { const paynowReady = !!process.env.PAYNOW_INTEGRATION_ID && !!process.env.PAYNOW_INTEGRATION_KEY; return json(200, { currency: 'USD', instructorSharePercent: INSTRUCTOR_SHARE_PERCENT, paymentSandbox: PAYMENT_SANDBOX, refundWindowDays: REFUND_WINDOW_DAYS, refundMaxProgressPercent: REFUND_MAX_PROGRESS_PERCENT, methods: [{ id: 'card', label: 'Visa / Mastercard (via Paynow)', configured: paynowReady }, { id: 'paynow', label: 'EcoCash / OneMoney (via Paynow)', configured: paynowReady }, { id: 'bank_transfer', label: 'Bank transfer', configured: true }] }); }
+   if (url.pathname === '/api/coupons/validate' && method === 'POST') { const u = await requireRole(request, ['student']); if (u instanceof Response) return u; try { const x = await readJson(request), result = await couponFor(x.code, u.id, cents(x.subtotalCents)); if (result.error) return json(400, { message: result.error }); return json(200, { code: result.code, discountCents: result.discount }); } catch (e) { return dbFail(e); } }
+   if (url.pathname === '/api/orders' && method === 'POST') {
+     const u = await requireRole(request, ['student']); if (u instanceof Response) return u;
+@@ -780,17 +794,46 @@ async function handle(request) {
+       return json(200, { order: current.rows[0] });
+     } catch (e) { return dbFail(e); }
+   }
+-  if (url.pathname === '/api/orders/mine' && method === 'GET') { const u = await requireRole(request, ['student']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT o.*,COALESCE(json_agg(json_build_object('courseId',c.id,'title',c.title,'priceCents',oi.unit_price_cents)) FILTER (WHERE c.id IS NOT NULL),'[]') items FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id LEFT JOIN courses c ON c.id=oi.course_id WHERE o.student_id=$1 GROUP BY o.id ORDER BY o.created_at DESC`, [u.id]); return json(200, { orders: r.rows }); } catch (e) { return dbFail(e); } }
++  if (url.pathname === '/api/orders/mine' && method === 'GET') {
++    const u = await requireRole(request, ['student']); if (u instanceof Response) return u;
++    try {
++      const r = await db.query(`SELECT o.*,COALESCE(json_agg(json_build_object('courseId',c.id,'title',c.title,'priceCents',oi.unit_price_cents)) FILTER (WHERE c.id IS NOT NULL),'[]') items,(SELECT COALESCE(max(en.progress),0) FROM order_items oi2 LEFT JOIN enrolments en ON en.course_id=oi2.course_id AND en.student_id=o.student_id WHERE oi2.order_id=o.id) max_progress FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id LEFT JOIN courses c ON c.id=oi.course_id WHERE o.student_id=$1 GROUP BY o.id ORDER BY o.created_at DESC`, [u.id]);
++      const orders = r.rows.map((o) => {
++        const { max_progress, ...rest } = o;
++        if (o.status !== 'paid' || !o.paid_at) return { ...rest, refundEligible: false };
++        const deadline = new Date(o.paid_at).getTime() + REFUND_WINDOW_DAYS * 86400000, windowOk = Date.now() <= deadline, progressOk = Number(max_progress || 0) <= REFUND_MAX_PROGRESS_PERCENT;
++        return { ...rest, refundEligible: windowOk && progressOk, refundDeadline: new Date(deadline).toISOString(), refundReason: !windowOk ? 'window_expired' : !progressOk ? 'progress_exceeded' : null };
++      });
++      return json(200, { orders, refundWindowDays: REFUND_WINDOW_DAYS, refundMaxProgressPercent: REFUND_MAX_PROGRESS_PERCENT });
++    } catch (e) { return dbFail(e); }
++  }
+   const refundReq = url.pathname.match(/^\/api\/orders\/([0-9a-f-]{36})\/refund-request$/i);
+-  if (refundReq && method === 'POST') { const u = await requireRole(request, ['student']); if (u instanceof Response) return u; try { const o = await db.query("SELECT * FROM orders WHERE id=$1 AND student_id=$2 AND status='paid'", [refundReq[1], u.id]); if (!o.rowCount) return json(404, { message: 'A paid order eligible for refund was not found.' }); const x = await readJson(request), id = uuid(); await db.query('INSERT INTO refunds(id,order_id,requested_by,amount_cents,reason) VALUES($1,$2,$3,$4,$5)', [id, refundReq[1], u.id, o.rows[0].total_cents, String(x.reason || '').slice(0, 2000)]); await db.query("UPDATE orders SET status='refund_requested',updated_at=now() WHERE id=$1", [refundReq[1]]); await audit(u, 'refund.requested', 'order', refundReq[1], {}); return json(201, { refundId: id, status: 'requested' }); } catch (e) { return dbFail(e); } }
+-  if (url.pathname === '/api/instructor/earnings' && method === 'GET') { const u = await requireRole(request, ['instructor', 'admin']); if (u instanceof Response) return u; try { const instructorId = u.role === 'admin' && url.searchParams.get('instructorId') ? url.searchParams.get('instructorId') : u.id; const sum = await db.query(`SELECT COALESCE(sum(instructor_cents) FILTER(WHERE status='available'),0) available,COALESCE(sum(instructor_cents) FILTER(WHERE status='pending'),0) pending,COALESCE(sum(instructor_cents),0) lifetime FROM instructor_earnings WHERE instructor_id=$1`, [instructorId]); const rows = await db.query(`SELECT e.*,c.title course_title,o.created_at order_date FROM instructor_earnings e JOIN courses c ON c.id=e.course_id JOIN orders o ON o.id=e.order_id WHERE e.instructor_id=$1 ORDER BY e.created_at DESC LIMIT 100`, [instructorId]); const payouts = await db.query('SELECT * FROM instructor_payouts WHERE instructor_id=$1 ORDER BY created_at DESC LIMIT 50', [instructorId]); return json(200, { summary: sum.rows[0], earnings: rows.rows, payouts: payouts.rows, sharePercent: INSTRUCTOR_SHARE_PERCENT }); } catch (e) { return dbFail(e); } }
++  if (refundReq && method === 'POST') {
++    const u = await requireRole(request, ['student']); if (u instanceof Response) return u;
++    try {
++      const o = await db.query('SELECT * FROM orders WHERE id=$1 AND student_id=$2', [refundReq[1], u.id]);
++      if (!o.rowCount) return json(404, { message: 'Order not found.' });
++      const order = o.rows[0];
++      if (order.status !== 'paid') return json(409, { message: 'Only a paid order can be refunded, and this one may already have a refund in progress.' });
++      const deadline = new Date(order.paid_at).getTime() + REFUND_WINDOW_DAYS * 86400000;
++      if (Date.now() > deadline) return json(409, { message: `This order is outside EduQuinn's ${REFUND_WINDOW_DAYS}-day refund window (paid on ${new Date(order.paid_at).toLocaleDateString()}). Contact Support if exceptional circumstances apply.`, reason: 'window_expired' });
++      const progress = await db.query(`SELECT COALESCE(max(en.progress),0) max_progress FROM order_items oi LEFT JOIN enrolments en ON en.course_id=oi.course_id AND en.student_id=$2 WHERE oi.order_id=$1`, [refundReq[1], u.id]);
++      if (Number(progress.rows[0].max_progress || 0) > REFUND_MAX_PROGRESS_PERCENT) return json(409, { message: `This order isn't eligible for a self-service refund because more than ${REFUND_MAX_PROGRESS_PERCENT}% of a course has already been completed. Contact Support if exceptional circumstances apply.`, reason: 'progress_exceeded' });
++      const x = await readJson(request), id = uuid();
++      await db.query('INSERT INTO refunds(id,order_id,requested_by,amount_cents,reason) VALUES($1,$2,$3,$4,$5)', [id, refundReq[1], u.id, order.total_cents, String(x.reason || '').slice(0, 2000)]);
++      await db.query("UPDATE orders SET status='refund_requested',updated_at=now() WHERE id=$1", [refundReq[1]]);
++      await audit(u, 'refund.requested', 'order', refundReq[1], {});
++      return json(201, { refundId: id, status: 'requested' });
++    } catch (e) { return dbFail(e); }
++  }
++  if (url.pathname === '/api/instructor/earnings' && method === 'GET') { const u = await requireRole(request, ['instructor', 'admin']); if (u instanceof Response) return u; try { const instructorId = u.role === 'admin' && url.searchParams.get('instructorId') ? url.searchParams.get('instructorId') : u.id; const sum = await db.query(`SELECT COALESCE(sum(instructor_cents) FILTER(WHERE ${AVAILABLE_EARNINGS_SQL}),0) available,COALESCE(sum(instructor_cents) FILTER(WHERE status='pending' AND available_at>now()),0) pending,COALESCE(sum(instructor_cents),0) lifetime,min(available_at) FILTER(WHERE status='pending' AND available_at>now()) next_release_at FROM instructor_earnings WHERE instructor_id=$1`, [instructorId]); const rows = await db.query(`SELECT e.*,c.title course_title,o.created_at order_date FROM instructor_earnings e JOIN courses c ON c.id=e.course_id JOIN orders o ON o.id=e.order_id WHERE e.instructor_id=$1 ORDER BY e.created_at DESC LIMIT 100`, [instructorId]); const payouts = await db.query('SELECT * FROM instructor_payouts WHERE instructor_id=$1 ORDER BY created_at DESC LIMIT 50', [instructorId]); return json(200, { summary: sum.rows[0], earnings: rows.rows, payouts: payouts.rows, sharePercent: INSTRUCTOR_SHARE_PERCENT, refundWindowDays: REFUND_WINDOW_DAYS, earningsHoldDays: EARNINGS_HOLD_DAYS }); } catch (e) { return dbFail(e); } }
+   if (url.pathname === '/api/admin/orders' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT o.*,u.name student_name,u.email student_email,(SELECT count(*) FROM refunds f WHERE f.order_id=o.id AND f.status='requested') refund_requests FROM orders o JOIN users u ON u.id=o.student_id ORDER BY o.created_at DESC LIMIT 500`); return json(200, { orders: r.rows }); } catch (e) { return dbFail(e); } }
+   const approveRefund = url.pathname.match(/^\/api\/admin\/refunds\/([0-9a-f-]{36})\/(approve|reject)$/i);
+   if (approveRefund && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query('SELECT * FROM refunds WHERE id=$1', [approveRefund[1]]); if (!r.rowCount) return json(404, { message: 'Refund not found.' }); const action = approveRefund[2], x = await readJson(request); if (action === 'reject') { await db.query("UPDATE refunds SET status='rejected',admin_note=$2,resolved_at=now() WHERE id=$1", [approveRefund[1], String(x.note || '')]); await db.query("UPDATE orders SET status='paid',updated_at=now() WHERE id=$1", [r.rows[0].order_id]); } else { await db.query("UPDATE refunds SET status='processed',admin_note=$2,resolved_at=now() WHERE id=$1", [approveRefund[1], String(x.note || '')]); await db.query("UPDATE orders SET status='refunded',updated_at=now() WHERE id=$1", [r.rows[0].order_id]); await db.query("UPDATE instructor_earnings SET status='reversed' WHERE order_id=$1 AND status<>'paid'", [r.rows[0].order_id]); } await audit(u, 'refund.' + (action === 'approve' ? 'processed' : 'rejected'), 'order', r.rows[0].order_id, {}); return json(200, { ok: true }); } catch (e) { return dbFail(e); } }
+   if (url.pathname === '/api/admin/refunds' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT f.*,o.student_id,o.total_cents,u.name student_name,u.email student_email FROM refunds f JOIN orders o ON o.id=f.order_id LEFT JOIN users u ON u.id=o.student_id ORDER BY f.created_at DESC LIMIT 300`); return json(200, { refunds: r.rows }); } catch (e) { return dbFail(e); } }
+   const markPaid = url.pathname.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/mark-paid$/i);
+   if (markPaid && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), order = await markOrderPaid(markPaid[1], String(x.reference || 'MANUAL-' + Date.now())); await audit(u, 'payment.confirmed', 'order', markPaid[1], { reference: x.reference || null }); return json(200, { order }); } catch (e) { return e.status ? json(e.status, { message: e.message }) : dbFail(e); } }
+-  if (url.pathname === '/api/admin/payouts/approve' && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), instructorId = String(x.instructorId || ''); if (!/^[0-9a-f-]{36}$/i.test(instructorId)) return json(400, { message: 'A valid instructor is required.' }); const available = await db.query("SELECT COALESCE(sum(instructor_cents),0) total,min(created_at)::date period_start,max(created_at)::date period_end FROM instructor_earnings WHERE instructor_id=$1 AND status='available' AND payout_id IS NULL", [instructorId]); const amount = Number(available.rows[0].total || 0); if (amount <= 0) return json(409, { message: 'This instructor has no available earnings.' }); const id = uuid(), ref = 'EQ-PAYOUT-' + Date.now().toString().slice(-10); await db.query("INSERT INTO instructor_payouts(id,instructor_id,amount_cents,currency,status,reference,period_start,period_end,paid_at) VALUES($1,$2,$3,'USD','paid',$4,$5,$6,now())", [id, instructorId, amount, ref, available.rows[0].period_start, available.rows[0].period_end]); await db.query("UPDATE instructor_earnings SET status='paid',payout_id=$1 WHERE instructor_id=$2 AND status='available' AND payout_id IS NULL", [id, instructorId]); await audit(u, 'payout.approved', 'user', instructorId, { payoutId: id, amountCents: amount }); return json(201, { payout: { id, reference: ref, amountCents: amount, status: 'paid' } }); } catch (e) { return dbFail(e); } }
++  if (url.pathname === '/api/admin/payouts/approve' && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), instructorId = String(x.instructorId || ''); if (!/^[0-9a-f-]{36}$/i.test(instructorId)) return json(400, { message: 'A valid instructor is required.' }); const available = await db.query(`SELECT COALESCE(sum(instructor_cents),0) total,min(created_at)::date period_start,max(created_at)::date period_end FROM instructor_earnings WHERE instructor_id=$1 AND payout_id IS NULL AND ${AVAILABLE_EARNINGS_SQL}`, [instructorId]); const amount = Number(available.rows[0].total || 0); if (amount <= 0) return json(409, { message: "This instructor has no earnings past EduQuinn's refund-safe hold period yet." }); const id = uuid(), ref = 'EQ-PAYOUT-' + Date.now().toString().slice(-10); await db.query("INSERT INTO instructor_payouts(id,instructor_id,amount_cents,currency,status,reference,period_start,period_end,paid_at) VALUES($1,$2,$3,'USD','paid',$4,$5,$6,now())", [id, instructorId, amount, ref, available.rows[0].period_start, available.rows[0].period_end]); await db.query(`UPDATE instructor_earnings SET status='paid',payout_id=$1 WHERE instructor_id=$2 AND payout_id IS NULL AND ${AVAILABLE_EARNINGS_SQL}`, [id, instructorId]); await audit(u, 'payout.approved', 'user', instructorId, { payoutId: id, amountCents: amount }); return json(201, { payout: { id, reference: ref, amountCents: amount, status: 'paid' } }); } catch (e) { return dbFail(e); } }
+   if (url.pathname === '/api/admin/coupons' && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), code = String(x.code || '').trim().toUpperCase(); if (!/^[A-Z0-9_-]{3,30}$/.test(code)) return json(400, { message: 'Use a coupon code of 3–30 letters, numbers, _ or -.' }); const type = x.discountType === 'fixed' ? 'fixed' : 'percent', value = type === 'percent' ? Math.min(100, Math.max(1, Number(x.discountValue || 0))) : Math.max(1, Number(x.discountValue || 0)); const id = uuid(); await db.query('INSERT INTO coupons(id,code,description,discount_type,discount_value,max_redemptions,created_by,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [id, code, String(x.description || ''), type, Math.round(value), x.maxRedemptions ? Number(x.maxRedemptions) : null, u.id, x.endsAt || null]); await audit(u, 'coupon.created', 'coupon', id, { code }); return json(201, { id, code }); } catch (e) { return dbFail(e); } }
+   if (url.pathname === '/api/admin/coupons' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT c.*,(SELECT count(*) FROM coupon_redemptions cr WHERE cr.coupon_id=c.id) used FROM coupons c ORDER BY c.created_at DESC LIMIT 300`); return json(200, { coupons: r.rows }); } catch (e) { return dbFail(e); } }
+   const toggleCoupon = url.pathname.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})\/(activate|deactivate)$/i);
+@@ -906,7 +949,7 @@ async function handle(request) {
+   if (url.pathname === '/api/admin/courses' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT c.id,c.title,c.category,c.education_level,c.price_cents,c.status,c.quality_score,c.created_at,c.updated_at,i.name instructor_name,i.email instructor_email FROM courses c LEFT JOIN users i ON i.id=c.instructor_id ORDER BY c.updated_at DESC LIMIT 500`); return json(200, { courses: r.rows }); } catch (e) { return dbFail(e); } }
+   const adminCourseStatus = url.pathname.match(/^\/api\/admin\/courses\/([0-9a-f-]{36})\/status$/i);
+   if (adminCourseStatus && method === 'POST') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const x = await readJson(request), status = String(x.status || ''); if (!['draft', 'under_review', 'changes_requested', 'published', 'suspended', 'archived'].includes(status)) return json(400, { message: 'Invalid course status.' }); const q = await db.query('UPDATE courses SET status=$2,updated_at=now() WHERE id=$1 RETURNING id,title,status', [adminCourseStatus[1], status]); if (!q.rowCount) return json(404, { message: 'Course not found.' }); await audit(u, 'course.status_updated', 'course', adminCourseStatus[1], { status }); return json(200, { course: q.rows[0] }); } catch (e) { return dbFail(e); } }
+-  if (url.pathname === '/api/admin/payouts' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT i.id instructor_id,i.name,i.email,COALESCE(sum(e.gross_cents),0)::bigint gross_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='available'),0)::bigint available_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='pending'),0)::bigint pending_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='paid'),0)::bigint paid_cents FROM users i LEFT JOIN instructor_earnings e ON e.instructor_id=i.id WHERE i.role='instructor' GROUP BY i.id,i.name,i.email ORDER BY available_cents DESC,i.name`); return json(200, { payouts: r.rows }); } catch (e) { return dbFail(e); } }
++  if (url.pathname === '/api/admin/payouts' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT i.id instructor_id,i.name,i.email,COALESCE(sum(e.gross_cents),0)::bigint gross_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='available' OR (e.status='pending' AND e.available_at<=now())),0)::bigint available_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='pending' AND e.available_at>now()),0)::bigint pending_cents,COALESCE(sum(e.instructor_cents) FILTER (WHERE e.status='paid'),0)::bigint paid_cents FROM users i LEFT JOIN instructor_earnings e ON e.instructor_id=i.id WHERE i.role='instructor' GROUP BY i.id,i.name,i.email ORDER BY available_cents DESC,i.name`); return json(200, { payouts: r.rows, refundWindowDays: REFUND_WINDOW_DAYS, earningsHoldDays: EARNINGS_HOLD_DAYS }); } catch (e) { return dbFail(e); } }
+   if (url.pathname === '/api/admin/reviews' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query(`SELECT r.id,r.rating,r.review,r.status,r.created_at,s.name student_name,c.title course_title FROM reviews r JOIN users s ON s.id=r.student_id JOIN courses c ON c.id=r.course_id ORDER BY r.created_at DESC LIMIT 500`); return json(200, { reviews: r.rows }); } catch (e) { return dbFail(e); } }
+   if (url.pathname === '/api/admin/users' && method === 'GET') { const u = await requireRole(request, ['admin']); if (u instanceof Response) return u; try { const r = await db.query('SELECT id,name,email,role,status,expertise,email_verified,created_at FROM users ORDER BY created_at DESC LIMIT 500'); return json(200, { users: r.rows }); } catch (e) { return dbFail(e); } }
+   const adminUserStatus = url.pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/status$/i);
+@@ -949,7 +992,7 @@ async function handle(request) {
+         db.query(`SELECT n.id,n.body,n.created_at,a.name author_name FROM admin_notes n LEFT JOIN users a ON a.id=n.author_id WHERE n.user_id=$1 ORDER BY n.created_at DESC LIMIT 200`, [targetId]),
+         db.query(`SELECT a.id,a.action,a.entity_type,a.entity_id,a.details,a.created_at,u.name actor_name FROM audit_log a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.actor_user_id=$1 OR (a.entity_type='user' AND a.entity_id=$1) ORDER BY a.created_at DESC LIMIT 100`, [targetId]),
+         db.query(`SELECT c.id,c.title,c.status,c.price_cents,c.created_at,(SELECT count(*) FROM enrolments e WHERE e.course_id=c.id) student_count FROM courses c WHERE c.instructor_id=$1 ORDER BY c.created_at DESC`, [targetId]),
+-        db.query(`SELECT COALESCE(sum(instructor_cents) FILTER (WHERE status='available'),0)::bigint available_cents,COALESCE(sum(instructor_cents) FILTER (WHERE status='pending'),0)::bigint pending_cents,COALESCE(sum(instructor_cents),0)::bigint lifetime_cents FROM instructor_earnings WHERE instructor_id=$1`, [targetId]),
++        db.query(`SELECT COALESCE(sum(instructor_cents) FILTER (WHERE ${AVAILABLE_EARNINGS_SQL}),0)::bigint available_cents,COALESCE(sum(instructor_cents) FILTER (WHERE status='pending' AND available_at>now()),0)::bigint pending_cents,COALESCE(sum(instructor_cents),0)::bigint lifetime_cents FROM instructor_earnings WHERE instructor_id=$1`, [targetId]),
+       ]);
+       return json(200, { user: target.rows[0], enrolments: enrolments.rows, orders: orders.rows, refunds: refunds.rows, notes: notes.rows, activity: activity.rows, instructorCourses: instructorCourses.rows, instructorEarnings: instructorEarnings.rows[0] });
+     } catch (e) { return dbFail(e); }
+diff --git a/db/schema.sql b/db/schema.sql
+index 9166a9a..a3803cf 100644
+--- a/db/schema.sql
++++ b/db/schema.sql
+@@ -526,3 +526,20 @@ CREATE TABLE IF NOT EXISTS mfa_challenges (
+ );
+ CREATE INDEX IF NOT EXISTS mfa_challenges_user_idx ON mfa_challenges(user_id);
+ CREATE INDEX IF NOT EXISTS mfa_challenges_expiry_idx ON mfa_challenges(expires_at);
++
++-- Phase 19 refund policy + payout-safe earnings hold.
++--   - instructor_earnings now starts every row in status='pending' with
++--     available_at set EARNINGS_HOLD_DAYS ahead of creation (see
++--     markOrderPaid in api/index.js), instead of landing in 'available'
++--     the instant an order is paid. That hold is deliberately set to
++--     outlast the self-service refund window (REFUND_WINDOW_DAYS), so a
++--     student's refund request always lands while the matching earnings
++--     row can still be reversed, instead of having to be clawed back from
++--     an instructor after the platform already paid them out.
++--   - The daily cron (api/cron/maintenance.js) flips 'pending' rows to
++--     'available' once available_at has passed; every query that sums
++--     "available" earnings also treats status='pending' AND
++--     available_at<=now() as available, so correctness never depends on
++--     the cron having run yet.
++ALTER TABLE instructor_earnings ADD COLUMN IF NOT EXISTS available_at timestamptz NOT NULL DEFAULT now();
++CREATE INDEX IF NOT EXISTS instructor_earnings_available_idx ON instructor_earnings(status, available_at);
+diff --git a/public/index.html b/public/index.html
+index bdb1b14..312c756 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -125,7 +125,7 @@
+     <footer><div><span>Total</span><strong id="cartTotal">$0.00</strong></div><a class="btn btn-primary btn-full" id="checkoutButton" href="/checkout.html">Proceed to checkout</a></footer>
+   </aside>
+ 
+-  <footer><div class="brand footer-brand"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></div><p>© 2026 EduQuinn. All rights reserved. · <a href="/verify-certificate.html">Verify certificate</a> · <a href="/support.html">Support</a> · <a href="/privacy-policy.html">Privacy Policy</a></p></footer>
++  <footer><div class="brand footer-brand"><span class="brand-mark">EQ</span><span><strong>EduQuinn</strong><small>Learn. Grow. Succeed.</small></span></div><p>© 2026 EduQuinn. All rights reserved. · <a href="/verify-certificate.html">Verify certificate</a> · <a href="/support.html">Support</a> · <a href="/privacy-policy.html">Privacy Policy</a> · <a href="/refund-policy.html">Refund Policy</a></p></footer>
+   <script src="/app.js"></script>
+ <script src="/pwa.js"></script></body>
+ </html>
+diff --git a/public/instructor-policy.html b/public/instructor-policy.html
+index a310658..c7ef89d 100644
+--- a/public/instructor-policy.html
++++ b/public/instructor-policy.html
+@@ -96,16 +96,23 @@
+     </p>
+ 
+     <p>
+-      EduQuinn may temporarily hold payments where fraud, disputes,
+-      verification issues or policy violations are being investigated.
++      Newly earned amounts are held for a short period — currently a few
++      days longer than the refund window described below — before they
++      become eligible for payout. This is not a penalty: it exists so that
++      a student's refund request always has time to be reviewed before the
++      related earnings are paid out, rather than EduQuinn needing to
++      recover funds from an instructor after the fact. EduQuinn may also
++      temporarily hold payments where fraud, disputes, verification issues
++      or policy violations are being investigated.
+     </p>
+ 
+     <h2>7. Refunds</h2>
+ 
+     <p>
+-      Student refunds may be processed in accordance with EduQuinn's
+-      refund policy and applicable law. Where a transaction is refunded,
+-      related instructor earnings may be adjusted or reversed.
++      Student refunds are processed in accordance with EduQuinn's
++      <a href="/refund-policy.html">Refund Policy</a> and applicable law.
++      Where a transaction is refunded, the related instructor earnings are
++      adjusted or reversed, and are not paid out.
+     </p>
+ 
+     <h2>8. Instructor information and privacy</h2>
+diff --git a/public/payments.js b/public/payments.js
+index d2b9a38..cc67a69 100644
+--- a/public/payments.js
++++ b/public/payments.js
+@@ -6,12 +6,12 @@ async function checkout(){
+  const [catalog,config]=await Promise.all([api('/api/courses'),api('/api/commerce/config')]);
+  const qs=new URLSearchParams(location.search),requested=qs.getAll('course'); let selected=new Set(requested);
+  const root=document.querySelector('#pageContent');
+- const render=()=>{const picked=catalog.courses.filter(c=>selected.has(c.id));const subtotal=picked.reduce((a,c)=>a+Number(c.price_cents),0);root.innerHTML=`<div class="checkout-layout phase12-checkout"><section class="panel checkout-form"><p class="eyebrow">CHECKOUT</p><h1>Secure checkout</h1><p>Review your selected courses and payment method.</p><div class="db-course-list">${catalog.courses.length?catalog.courses.map(c=>`<label class="db-course-option"><input type="checkbox" value="${c.id}" ${selected.has(c.id)?'checked':''}><span><b>${esc(c.title)}</b><small>${esc(c.instructor_name||'EduQuinn Instructor')} · ${esc(c.education_level)}</small></span><strong>${fmt(c.price_cents)}</strong></label>`).join(''):'<div class="empty-state"><b>No published database courses yet.</b><p>Ask an instructor to create and publish a course first.</p></div>'}</div><div class="coupon-row"><input id="couponCode" placeholder="Coupon code"><button class="btn btn-ghost" id="applyCoupon" type="button">Apply</button></div><small id="couponMsg"></small><h2>Payment method</h2><div class="payment-options">${config.methods.map((m,i)=>`<label class="payment-option ${!m.configured&&m.id!=='bank_transfer'?'payment-unconfigured':''}"><input type="radio" name="payment" value="${m.id}" ${i===config.methods.length-1?'checked':''}><span class="payment-icon">${m.id==='bank_transfer'?'🏦':m.id==='paynow'?'📱':'💳'}</span><span class="payment-copy"><b>${esc(m.label)}</b><small>${m.configured?'Available':'Unavailable'}</small></span></label>`).join('')}</div><button class="btn btn-primary btn-full" id="placeOrder" ${picked.length?'':'disabled'}>Place order · ${fmt(subtotal)}</button><p class="secure-note">Your order will be processed using the selected available payment method.</p></section><aside class="panel order-summary"><h2>Order summary</h2>${picked.map(c=>`<div class="summary-course"><div><b>${esc(c.title)}</b><small>${esc(c.instructor_name||'Instructor')}</small></div><strong>${fmt(c.price_cents)}</strong></div>`).join('')||'<p>Select a course to continue.</p>'}<div class="summary-total"><span>Subtotal</span><strong>${fmt(subtotal)}</strong></div></aside></div>`;
++ const render=()=>{const picked=catalog.courses.filter(c=>selected.has(c.id));const subtotal=picked.reduce((a,c)=>a+Number(c.price_cents),0);root.innerHTML=`<div class="checkout-layout phase12-checkout"><section class="panel checkout-form"><p class="eyebrow">CHECKOUT</p><h1>Secure checkout</h1><p>Review your selected courses and payment method.</p><div class="db-course-list">${catalog.courses.length?catalog.courses.map(c=>`<label class="db-course-option"><input type="checkbox" value="${c.id}" ${selected.has(c.id)?'checked':''}><span><b>${esc(c.title)}</b><small>${esc(c.instructor_name||'EduQuinn Instructor')} · ${esc(c.education_level)}</small></span><strong>${fmt(c.price_cents)}</strong></label>`).join(''):'<div class="empty-state"><b>No published database courses yet.</b><p>Ask an instructor to create and publish a course first.</p></div>'}</div><div class="coupon-row"><input id="couponCode" placeholder="Coupon code"><button class="btn btn-ghost" id="applyCoupon" type="button">Apply</button></div><small id="couponMsg"></small><h2>Payment method</h2><div class="payment-options">${config.methods.map((m,i)=>`<label class="payment-option ${!m.configured&&m.id!=='bank_transfer'?'payment-unconfigured':''}"><input type="radio" name="payment" value="${m.id}" ${i===config.methods.length-1?'checked':''}><span class="payment-icon">${m.id==='bank_transfer'?'🏦':m.id==='paynow'?'📱':'💳'}</span><span class="payment-copy"><b>${esc(m.label)}</b><small>${m.configured?'Available':'Unavailable'}</small></span></label>`).join('')}</div><button class="btn btn-primary btn-full" id="placeOrder" ${picked.length?'':'disabled'}>Place order · ${fmt(subtotal)}</button><p class="secure-note">Your order will be processed using the selected available payment method. Refunds are available within ${config.refundWindowDays||14} days of purchase, as long as you haven't completed more than ${config.refundMaxProgressPercent||20}% of the course — see our <a href="/refund-policy.html" target="_blank" rel="noopener">Refund Policy</a>.</p></section><aside class="panel order-summary"><h2>Order summary</h2>${picked.map(c=>`<div class="summary-course"><div><b>${esc(c.title)}</b><small>${esc(c.instructor_name||'Instructor')}</small></div><strong>${fmt(c.price_cents)}</strong></div>`).join('')||'<p>Select a course to continue.</p>'}<div class="summary-total"><span>Subtotal</span><strong>${fmt(subtotal)}</strong></div></aside></div>`;
+  root.querySelectorAll('.db-course-option input').forEach(x=>x.onchange=()=>{x.checked?selected.add(x.value):selected.delete(x.value);render()});
+  let applied='';document.querySelector('#applyCoupon').onclick=async()=>{const code=document.querySelector('#couponCode').value.trim();try{const d=await api('/api/coupons/validate',{method:'POST',body:JSON.stringify({code,subtotalCents:subtotal})});applied=d.code||'';document.querySelector('#couponMsg').textContent=d.code?`${d.code} applied — ${fmt(d.discountCents)} discount.`:'No coupon applied.'}catch(e){document.querySelector('#couponMsg').textContent=e.message}};
+  document.querySelector('#placeOrder').onclick=async()=>{const btn=document.querySelector('#placeOrder');btn.disabled=true;btn.textContent='Creating order…';try{const paymentMethod=document.querySelector('[name=payment]:checked').value;const d=await api('/api/orders',{method:'POST',body:JSON.stringify({courseIds:[...selected],paymentMethod,couponCode:applied})});sessionStorage.setItem('eduquinnLastDbOrder',JSON.stringify(d));if(d.paynowRedirectUrl){location.href=d.paynowRedirectUrl;return}location.href='/order-success.html?db=1&orderId='+encodeURIComponent(d.order.id)}catch(e){alert(e.message);btn.disabled=false;btn.textContent=`Place order · ${fmt(subtotal)}`}};
+  }; render();
+ }
+-async function purchases(){const me=await api('/api/auth/session');if(!me.user||me.user.role!=='student'){location.href='/login.html?role=student&next=/purchases.html';return}const d=await api('/api/orders/mine');const root=document.querySelector('#pageContent');root.innerHTML=d.orders.length?`<div class="panel purchase-table db-orders"><div class="purchase-head"><span>Order</span><span>Date</span><span>Courses</span><span>Payment</span><span>Total</span><span>Status</span></div>${d.orders.map(o=>`<div class="purchase-row"><b>${String(o.id).slice(0,8).toUpperCase()}</b><span>${new Date(o.created_at).toLocaleDateString()}</span><span>${o.items.length}</span><span>${esc(o.payment_method||'—')}</span><strong>${fmt(o.total_cents)}</strong><em class="status ${esc(o.status)}">${esc(o.status.replaceAll('_',' '))}</em>${o.status==='pending_gateway'?`<button class="btn btn-primary" data-pay="${o.id}">Pay now</button>`:''}</div>`).join('')}</div>`:'<div class="empty-state"><h2>No database orders yet</h2><a class="btn btn-primary" href="/checkout.html">Start checkout</a></div>';root.querySelectorAll('[data-pay]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='Starting payment…';try{const r=await api(`/api/orders/${b.dataset.pay}/pay/paynow`,{method:'POST',body:'{}'});location.href=r.redirectUrl}catch(e){alert(e.message);b.disabled=false;b.textContent='Pay now'}})}
+-async function payout(){const d=await api('/api/instructor/earnings');const s=d.summary;document.querySelector('#payoutMetrics').innerHTML=`<article><span>${iconSvg('money')}</span><div><small>Available</small><strong>${fmt(s.available)}</strong><em>Ready for payout</em></div></article><article><span>${iconSvg('clock')}</span><div><small>Pending</small><strong>${fmt(s.pending)}</strong><em>Processing</em></div></article><article><span>${iconSvg('chart')}</span><div><small>Lifetime earnings</small><strong>${fmt(s.lifetime)}</strong><em>${d.sharePercent}% instructor share</em></div></article>`;document.querySelector('#payoutRows').innerHTML=d.earnings.length?d.earnings.map(e=>`<div class="payout-tr"><b>${esc(e.course_title)}</b><strong>${fmt(e.gross_cents)}</strong><strong>${fmt(e.instructor_cents)}</strong><em class="status ${esc(e.status)}">${esc(e.status)}</em><span>${new Date(e.created_at).toLocaleDateString()}</span></div>`).join(''):'<div class="empty-state"><p>No earnings have been recorded yet.</p></div>'}
++async function purchases(){const me=await api('/api/auth/session');if(!me.user||me.user.role!=='student'){location.href='/login.html?role=student&next=/purchases.html';return}const d=await api('/api/orders/mine');const root=document.querySelector('#pageContent');const note=`<p class="secure-note">Refunds are available within ${d.refundWindowDays||14} days of purchase, as long as you haven't completed more than ${d.refundMaxProgressPercent||20}% of the course. See our <a href="/refund-policy.html" target="_blank" rel="noopener">Refund Policy</a>.</p>`;root.innerHTML=d.orders.length?note+`<div class="panel purchase-table db-orders"><div class="purchase-head"><span>Order</span><span>Date</span><span>Courses</span><span>Payment</span><span>Total</span><span>Status</span></div>${d.orders.map(o=>`<div class="purchase-row"><b>${String(o.id).slice(0,8).toUpperCase()}</b><span>${new Date(o.created_at).toLocaleDateString()}</span><span>${o.items.length}</span><span>${esc(o.payment_method||'—')}</span><strong>${fmt(o.total_cents)}</strong><em class="status ${esc(o.status)}">${esc(o.status.replaceAll('_',' '))}</em>${o.status==='pending_gateway'?`<button class="btn btn-primary" data-pay="${o.id}">Pay now</button>`:''}${o.status==='paid'&&o.refundEligible?`<button class="btn btn-ghost" data-refund="${o.id}">Request refund</button>`:''}${o.status==='paid'&&!o.refundEligible?`<small>${o.refundReason==='progress_exceeded'?'Not eligible — course in progress':'Refund window closed'}</small>`:''}</div>`).join('')}</div>`:'<div class="empty-state"><h2>No database orders yet</h2><a class="btn btn-primary" href="/checkout.html">Start checkout</a></div>';root.querySelectorAll('[data-pay]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='Starting payment…';try{const r=await api(`/api/orders/${b.dataset.pay}/pay/paynow`,{method:'POST',body:'{}'});location.href=r.redirectUrl}catch(e){alert(e.message);b.disabled=false;b.textContent='Pay now'}});root.querySelectorAll('[data-refund]').forEach(b=>b.onclick=async()=>{const reason=prompt("Briefly tell us why you'd like a refund (optional):")||'';b.disabled=true;b.textContent='Requesting…';try{await api(`/api/orders/${b.dataset.refund}/refund-request`,{method:'POST',body:JSON.stringify({reason})});alert('Your refund request has been submitted. An admin will review it shortly.');purchases()}catch(e){alert(e.message);b.disabled=false;b.textContent='Request refund'}})}
++async function payout(){const d=await api('/api/instructor/earnings');const s=d.summary;document.querySelector('#payoutMetrics').innerHTML=`<article><span>${iconSvg('money')}</span><div><small>Available</small><strong>${fmt(s.available)}</strong><em>Ready for payout</em></div></article><article><span>${iconSvg('clock')}</span><div><small>Pending</small><strong>${fmt(s.pending)}</strong><em>${s.next_release_at?`Clears on ${new Date(s.next_release_at).toLocaleDateString()}`:'Processing'}</em></div></article><article><span>${iconSvg('chart')}</span><div><small>Lifetime earnings</small><strong>${fmt(s.lifetime)}</strong><em>${d.sharePercent}% instructor share</em></div></article>`;document.querySelector('#payoutRows').innerHTML=(d.earnings.length?`<p class="secure-note">New earnings are held for ${d.earningsHoldDays||17} days — a little longer than EduQuinn's ${d.refundWindowDays||14}-day student refund window — before they're eligible for payout, so a refund never has to be clawed back after you've already been paid.</p>`:'')+(d.earnings.length?d.earnings.map(e=>`<div class="payout-tr"><b>${esc(e.course_title)}</b><strong>${fmt(e.gross_cents)}</strong><strong>${fmt(e.instructor_cents)}</strong><em class="status ${esc(e.status)}">${esc(e.status)}</em><span>${new Date(e.created_at).toLocaleDateString()}</span></div>`).join(''):'<div class="empty-state"><p>No earnings have been recorded yet.</p></div>')}
+ const page=document.body.dataset.paymentPage;if(page==='checkout')checkout().catch(e=>document.querySelector('#pageContent').innerHTML=`<div class="empty-state"><h2>Checkout unavailable</h2><p>${esc(e.message)}</p></div>`);if(page==='purchases')purchases().catch(e=>alert(e.message));if(page==='payout')payout().catch(e=>alert(e.message));
+diff --git a/public/privacy-policy.html b/public/privacy-policy.html
+index a5c53e9..3d33599 100644
+--- a/public/privacy-policy.html
++++ b/public/privacy-policy.html
+@@ -58,7 +58,7 @@
+     <h2>3. How we use this information</h2>
+     <ul>
+       <li>To create and secure your account, and keep you signed in.</li>
+-      <li>To process orders, refunds, instructor payouts, and coupons.</li>
++      <li>To process orders, refunds (see our <a href="/refund-policy.html">Refund Policy</a>), instructor payouts, and coupons.</li>
+       <li>To deliver course content, track progress, issue certificates, and run live classes.</li>
+       <li>To let students and instructors communicate about a course, and to respond to support requests.</li>
+       <li>To send account, order and course notifications you have not opted out of.</li>
+diff --git a/public/refund-policy.html b/public/refund-policy.html
+new file mode 100644
+index 0000000..69adcfb
+--- /dev/null
++++ b/public/refund-policy.html
+@@ -0,0 +1,144 @@
++<!doctype html>
++<html lang="en">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width,initial-scale=1">
++  <title>Refund Policy — EduQuinn</title>
++  <link rel="stylesheet" href="/styles.css">
++  <link rel="icon" href="/favicon.ico" sizes="any"><link rel="icon" href="/app-icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#702632">
++</head>
++
++<body>
++
++<main class="policy-page">
++
++  <div class="policy-card">
++
++    <a href="/" class="policy-brand">
++      <span class="brand-mark">EQ</span>
++      <strong>EduQuinn</strong>
++    </a>
++
++    <h1>Refund Policy</h1>
++
++    <p class="policy-updated">
++      Last updated: November 2026
++    </p>
++
++    <p>
++      This policy explains when a course purchase on EduQuinn is eligible
++      for a refund, how to request one, and what happens to the instructor's
++      share of a sale that is refunded. It applies to the EduQuinn website at
++      eduquinn.co.zw and to the EduQuinn Android app. It works alongside our
++      <a href="/privacy-policy.html">Privacy Policy</a> and, for instructors,
++      the <a href="/instructor-policy.html">Instructor Terms &amp; Privacy
++      Policy</a>.
++    </p>
++
++    <h2>1. The short version</h2>
++    <p>
++      You can request a refund for a course within <strong>14 days</strong>
++      of purchase, as long as you have not completed more than
++      <strong>20%</strong> of that course yet. Requests inside this window
++      are processed automatically once submitted from your
++      <a href="/purchases.html">Purchase History</a> page. Outside this
++      window, or past that completion threshold, we may still consider a
++      refund at our discretion — contact <a href="/support.html">Support</a>
++      and explain the circumstances.
++    </p>
++
++    <h2>2. Why there's a completion limit as well as a time limit</h2>
++    <p>
++      EduQuinn is a marketplace: when you buy a course, the instructor who
++      made it is paid a share of what you paid (currently most of the
++      price). The 14-day/20% rule is there so that a genuine case —
++      bought the wrong course, it isn't what you expected, technical
++      problems prevented you from using it — can always get a refund
++      quickly, while discouraging someone from working through most of a
++      course and then asking for their money back once they've already
++      gotten the value out of it. If you believe your situation is a
++      genuine exception to the 20% limit, Support can still review it
++      manually.
++    </p>
++
++    <h2>3. How to request a refund</h2>
++    <ol>
++      <li>Open <a href="/purchases.html">Purchase History</a> while signed
++        in as a student.</li>
++      <li>Find the order and select <strong>Request refund</strong>. If the
++        order is still within the window above, this submits your request
++        immediately for review.</li>
++      <li>If the button isn't available, the order has either already
++        passed the 14-day window or more than 20% of a course in it has
++        been completed — contact <a href="/support.html">Support</a> if you
++        still believe a refund is warranted.</li>
++      <li>An administrator reviews every refund request before it is
++        approved or rejected. We aim to respond within a few business
++        days.</li>
++    </ol>
++
++    <h2>4. What happens once a refund is approved</h2>
++    <p>
++      Your access to the course is removed, and the payment is reversed
++      through the same method it was made with wherever our payment
++      processor, Paynow, supports that; where it doesn't, we arrange the
++      refund by bank transfer or mobile money instead. The instructor's
++      share of that sale is reversed along with it — refunded orders are
++      never paid out to an instructor. This is also why an instructor's
++      earnings on a new sale are held for a short period (currently a few
++      days longer than this policy's 14-day window) before being eligible
++      for payout: it gives any refund request time to be made and reviewed
++      first, rather than EduQuinn having to recover money from an
++      instructor's payout after the fact.
++    </p>
++
++    <h2>5. Free courses, coupons and bundles</h2>
++    <p>
++      A course with no charge (free, or fully covered by a coupon) has
++      nothing to refund. Where a coupon or bundle discount applied to a
++      paid order, an approved refund returns what was actually charged, not
++      the course's full list price.
++    </p>
++
++    <h2>6. Live classes and certificates</h2>
++    <p>
++      Reserving or attending a live class tied to a course does not by
++      itself affect refund eligibility, but it is taken into account as
++      part of how much of a course you've used. A certificate can only be
++      issued once a course reaches 100% completion, by which point an order
++      would already be well past the 20% threshold above and outside
++      automatic refund eligibility.
++    </p>
++
++    <h2>7. Chargebacks</h2>
++    <p>
++      If you dispute a charge directly with your bank or mobile money
++      provider instead of requesting a refund through EduQuinn first, your
++      course access may be suspended while the dispute is investigated.
++      Please contact <a href="/support.html">Support</a> first — it's
++      almost always faster.
++    </p>
++
++    <h2>8. Changes to this policy</h2>
++    <p>
++      We may update this policy, including the 14-day window and 20%
++      completion threshold, as the platform evolves. We will update the
++      "Last updated" date above when we do, and significant changes will be
++      announced on the platform.
++    </p>
++
++    <p class="policy-updated">
++      This policy is a plain-language summary provided for transparency and
++      app-store compliance purposes. It is not a substitute for legal
++      advice; EduQuinn's operator should have it reviewed by a qualified
++      lawyer familiar with Zimbabwe's consumer-protection and tax law before
++      relying on it, particularly regarding any withholding-tax treatment of
++      reversed instructor earnings.
++    </p>
++
++  </div>
++
++</main>
++
++</body>
++</html>
+diff --git a/scripts/maintenance.js b/scripts/maintenance.js
+index 3ad2fcf..38bc724 100644
+--- a/scripts/maintenance.js
++++ b/scripts/maintenance.js
+@@ -1,2 +1,2 @@
+ const db=require('../db');
+-(async()=>{if(!process.env.DATABASE_URL){console.error('DATABASE_URL is not configured.');process.exit(1)}const expired=await db.query('DELETE FROM sessions WHERE expires_at<=now() RETURNING id');const security=await db.query("DELETE FROM security_events WHERE created_at < now()-interval '180 days' RETURNING id");console.log(`Removed ${expired.rowCount} expired sessions and ${security.rowCount} old security events.`);if(db.pool)await db.pool.end()})().catch(e=>{console.error(e);process.exit(1)});
++(async()=>{if(!process.env.DATABASE_URL){console.error('DATABASE_URL is not configured.');process.exit(1)}const expired=await db.query('DELETE FROM sessions WHERE expires_at<=now() RETURNING id');const security=await db.query("DELETE FROM security_events WHERE created_at < now()-interval '180 days' RETURNING id");const released=await db.query("UPDATE instructor_earnings SET status='available' WHERE status='pending' AND available_at<=now() RETURNING id");console.log(`Removed ${expired.rowCount} expired sessions and ${security.rowCount} old security events. Released ${released.rowCount} matured instructor earnings.`);if(db.pool)await db.pool.end()})().catch(e=>{console.error(e);process.exit(1)});
+-- 
+2.43.0
+

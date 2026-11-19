@@ -1,0 +1,41 @@
+From 9f88786822450c0ad7653a3b7f96cf42e4a2e028 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 15:46:22 +0200
+Subject: [PATCH] Fix installSplashScreen import: needs explicit .Companion.
+ segment
+
+androidx.core.splashscreen.SplashScreen.installSplashScreen (previous
+commit, omitting Companion) still left it unresolved in CI - Kotlin
+does not let you skip the explicit Companion qualifier when importing
+a function declared inside a companion object, even though the
+metalava API listing makes it look reachable straight off the class
+name. Verified the correct form against three independent working
+Kotlin samples that use this exact library and call site:
+
+    import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+
+The call site was already correct (bare installSplashScreen()) and is
+unchanged.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ .../app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt   | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+index fb0d9d1..a6b6cad 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/src/main/java/zw/co/eduquinn/app/ui/NativeActivity.kt
+@@ -12,7 +12,7 @@ import androidx.compose.material3.Surface
+ import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.getValue
+ import androidx.compose.ui.Modifier
+-import androidx.core.splashscreen.SplashScreen.installSplashScreen
++import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+ import androidx.lifecycle.lifecycleScope
+ import kotlinx.coroutines.launch
+ import zw.co.eduquinn.app.EduQuinnApplication
+-- 
+2.43.0
+

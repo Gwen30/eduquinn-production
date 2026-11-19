@@ -1,0 +1,39 @@
+From a9b28602a8c13257540f564810b6aca0750873ba Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 23:29:10 +0200
+Subject: [PATCH] Bump Android versionCode to 4 for re-upload to Play Console
+
+Play Console rejected the upload with "Version code 3 has already been
+used" - versionCode was hardcoded and never bumped between builds, so
+every AAB produced by CI so far carried the same code 3. Bumped to 4 and
+versionName to 1.2.0 to cover the native login/MFA fix and CI fix landed
+since the last upload.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0117Yza2cLL621d3pHBjry2q
+---
+ .../EduQuinn-Android/app/build.gradle                     | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+index bc59b16..e98b9e0 100644
+--- a/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
++++ b/EduQuinn-Android-Build-Ready/EduQuinn-Android/app/build.gradle
+@@ -13,8 +13,12 @@ android {
+         applicationId "zw.co.eduquinn.app"
+         minSdk 24
+         targetSdk 36
+-        versionCode 3
+-        versionName "1.1.0"
++        // Play Console rejects a re-upload of a versionCode it has already
++        // seen, even on a brand-new, never-published app - bump this every
++        // time you need to upload a new build, including just to replace a
++        // closed-testing release while chasing down a fix.
++        versionCode 4
++        versionName "1.2.0"
+     }
+ 
+     signingConfigs {
+-- 
+2.43.0
+

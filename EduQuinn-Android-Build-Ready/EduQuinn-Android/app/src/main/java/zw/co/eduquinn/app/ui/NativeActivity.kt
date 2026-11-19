@@ -81,7 +81,12 @@ class NativeActivity : ComponentActivity() {
         }
 
         setContent {
-            EduQuinnTheme {
+            // Forced light, not isSystemInDarkTheme()'s default: the
+            // website has exactly one look (it has no dark mode), and the
+            // app is meant to match it, not diverge into a near-black
+            // Material scheme whenever the phone happens to be in system
+            // dark mode.
+            EduQuinnTheme(darkTheme = false) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val initialized by SessionManager.initialized.collectAsState()
                     if (initialized) {

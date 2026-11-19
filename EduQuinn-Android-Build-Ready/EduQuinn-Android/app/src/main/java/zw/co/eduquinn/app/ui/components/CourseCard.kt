@@ -18,6 +18,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,16 +31,20 @@ import zw.co.eduquinn.app.data.model.Course
 /**
  * The courses endpoints (api/index.js) return no thumbnail/cover image —
  * the schema only has course_assets rows (kind='thumbnail') that are never
- * joined back into /api/courses or /api/courses/:id. So this card leans
- * on a branded color block + initials instead of a photo, rather than
- * wiring up an image loader against a URL that doesn't exist.
+ * joined back into /api/courses or /api/courses/:id. The website's own
+ * cards lean on a category icon badge instead of a photo for exactly this
+ * reason (see app.js's iconFor()); courseIcon() in CategoryIcons.kt ports
+ * that same mapping rather than wiring up an image loader against a URL
+ * that doesn't exist.
  */
 @Composable
 fun CourseCard(
     course: Course,
     isWishlisted: Boolean,
+    isInCart: Boolean,
     onClick: () -> Unit,
     onToggleWishlist: () -> Unit,
+    onAddToCart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -53,11 +58,11 @@ fun CourseCard(
                 .height(96.dp)
                 .background(MaterialTheme.colorScheme.primary),
         ) {
-            Text(
-                text = initialsFor(course.title),
-                color = MaterialTheme.colorScheme.onPrimary,
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.align(Alignment.Center),
+            Icon(
+                courseIcon(course.category),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(40.dp).align(Alignment.Center),
             )
             IconButton(onClick = onToggleWishlist, modifier = Modifier.align(Alignment.TopEnd)) {
                 Icon(
@@ -85,17 +90,31 @@ fun CourseCard(
             course.instructorName?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.size(8.dp))
+            Spacer(Modifier.size(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RatingStars(course.rating, course.reviewCount)
+                // Mirrors the web card's meta line ("4.8 ★ · 312 students") —
+                // a separate field from reviewCount, so this is appended here
+                // rather than folded into RatingStars itself.
+                if (course.students > 0) {
+                    Text(
+                        " · ${course.students} student${if (course.students == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.size(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                RatingStars(course.rating, course.reviewCount)
                 PriceTag(course.priceCents, course.currency)
+                OutlinedButton(onClick = onAddToCart, enabled = !isInCart) {
+                    Text(if (isInCart) "In cart" else "Add to cart")
+                }
             }
         }
     }
 }
-
-private fun initialsFor(title: String): String =
-    title.trim().split(" ").filter { it.isNotEmpty() }.take(2).map { it.first().uppercaseChar() }.joinToString("")

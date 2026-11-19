@@ -13,13 +13,13 @@
         android:theme="@style/Theme.EduQuinn">
 
         <!--
-          Fallback target for anything outside the native v1 scope (live
+          Fallback target for anything outside the native scope (live
           classes, messaging, notifications, instructor/admin areas,
-          purchase history) — kept exactly as before. NativeActivity now
-          owns the launcher role and the App Links intent-filter; it
-          forwards any URI it doesn't recognize here unchanged
-          (see NativeActivity.resolveNativeStartRoute), so this activity's
-          own WebView deep-link interception, offline fallback, and
+          purchase history) — NativeActivity owns the launcher role and
+          the App Links intent-filter below; it forwards any URI it
+          doesn't recognize here unchanged (see
+          NativeActivity.resolveNativeStartRoute), so this activity's own
+          WebView deep-link interception, offline fallback, and
           file-chooser handling still see exactly the same kind of intents
           they always did.
         -->
@@ -29,6 +29,13 @@
             android:theme="@style/Theme.EduQuinn"
             android:screenOrientation="unspecified" />
 
+        <!--
+          Launcher and App Links target. The native Catalog screen is
+          being redesigned to visually match the website (hero, stats,
+          categories, course cards) rather than falling back to a WebView
+          of the site, so this stays the real entry point rather than a
+          browser view.
+        -->
         <activity
             android:name=".ui.NativeActivity"
             android:exported="true"

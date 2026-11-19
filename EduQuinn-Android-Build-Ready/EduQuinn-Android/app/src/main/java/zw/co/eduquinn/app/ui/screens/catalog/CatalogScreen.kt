@@ -1,15 +1,17 @@
 package zw.co.eduquinn.app.ui.screens.catalog
 
-import androidx.compose.foundation.layout.Arrangement
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
@@ -17,7 +19,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -25,6 +26,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -37,6 +40,14 @@ import zw.co.eduquinn.app.ui.components.ErrorState
 import zw.co.eduquinn.app.ui.components.LoadingState
 import zw.co.eduquinn.app.ui.nav.Destinations
 
+/**
+ * Restructured to match public/index.html section-for-section: hero
+ * (search + live stats) -> category pills -> education-stage strip ->
+ * "Featured courses" grid -> "Popular courses" compact list -> promo
+ * cards -> benefits strip. Course Detail/Checkout/My Learning/Account/
+ * Login stay plain Material3 for now — this pass covers the Catalog/home
+ * screen only.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CatalogScreen(
@@ -50,6 +61,8 @@ fun CatalogScreen(
     )
     val uiState by viewModel.uiState.collectAsState()
     val cartItems by CartStore.items.collectAsState()
+    val cartIds = cartItems.map { it.id }.toSet()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -75,43 +88,95 @@ fun CatalogScreen(
             uiState.isLoading -> LoadingState(modifier = Modifier.padding(padding))
             uiState.error != null && uiState.allCourses.isEmpty() ->
                 ErrorState(uiState.error ?: "Could not load courses.", modifier = Modifier.padding(padding), onRetry = viewModel::load)
-            else -> Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-                OutlinedTextField(
-                    value = uiState.searchQuery,
-                    onValueChange = viewModel::onSearchQueryChange,
-                    placeholder = { Text("Search courses") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-
-                uiState.stats?.let { stats ->
-                    Text(
-                        "${stats.courses} courses · ${stats.instructors} instructors · ${stats.students} students",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(bottom = 24.dp),
+            ) {
+                item {
+                    CatalogHero(
+                        searchQuery = uiState.searchQuery,
+                        onSearchQueryChange = viewModel::onSearchQueryChange,
+                        stats = uiState.stats,
                     )
                 }
 
-                LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(uiState.visibleCourses, key = { it.id }) { course ->
-                        CourseCard(
-                            course = course,
-                            isWishlisted = course.id in uiState.wishlistIds,
-                            onClick = { navController.navigate(Destinations.courseDetail(course.id)) },
-                            onToggleWishlist = {
-                                if (!viewModel.toggleWishlist(course.id)) {
-                                    navController.navigate(Destinations.login(Destinations.CATALOG))
-                                }
-                            },
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        SectionHeading(eyebrow = "EXPLORE", title = "Top categories")
+                    }
+                }
+                item {
+                    CategoryPillsRow(
+                        selected = uiState.selectedCategory,
+                        onSelect = viewModel::onCategorySelect,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                item {
+                    StageStripRow(
+                        selected = uiState.selectedStage,
+                        onSelect = viewModel::onStageSelect,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                    )
+                }
+
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        SectionHeading(eyebrow = "HANDPICKED", title = "Featured courses")
+                    }
+                }
+                items(uiState.visibleCourses, key = { it.id }) { course ->
+                    CourseCard(
+                        course = course,
+                        isWishlisted = course.id in uiState.wishlistIds,
+                        isInCart = course.id in cartIds,
+                        onClick = { navController.navigate(Destinations.courseDetail(course.id)) },
+                        onToggleWishlist = {
+                            if (!viewModel.toggleWishlist(course.id)) {
+                                navController.navigate(Destinations.login(Destinations.CATALOG))
+                            }
+                        },
+                        onAddToCart = { CartStore.add(course) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        SectionHeading(eyebrow = "TRENDING", title = "Popular courses")
+                        Spacer(Modifier.height(8.dp))
+                        PopularCoursesList(
+                            courses = uiState.popularCourses,
+                            onCourseClick = { navController.navigate(Destinations.courseDetail(it.id)) },
+                            modifier = Modifier.padding(top = 10.dp),
                         )
                     }
+                }
+
+                item {
+                    PromoCardsRow(
+                        onInstructorClick = {
+                            CustomTabsIntent.Builder().build()
+                                .launchUrl(context, Uri.parse("https://eduquinn.co.zw/signup.html?role=instructor"))
+                        },
+                        onLiveClassesClick = {
+                            CustomTabsIntent.Builder().build()
+                                .launchUrl(context, Uri.parse("https://eduquinn.co.zw/live-classes.html"))
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+
+                item {
+                    BenefitsStrip(modifier = Modifier.padding(16.dp))
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SectionHeading(eyebrow: String, title: String) {
+    Text(eyebrow, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
 }

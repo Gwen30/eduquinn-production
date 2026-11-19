@@ -11,6 +11,7 @@ object Destinations {
     const val CATALOG = "catalog"
     const val MY_LEARNING = "my_learning"
     const val ACCOUNT = "account"
+    const val MORE = "more"
 
     const val LOGIN = "login?returnTo={returnTo}"
     const val LOGIN_BASE = "login"
@@ -20,8 +21,9 @@ object Destinations {
     const val ORDER_STATUS = "order_status/{orderId}"
     const val LESSON_PLAYER = "lesson_player/{courseId}/{lessonId}"
     const val CERTIFICATE = "certificate/{courseId}"
+    const val WISHLIST = "wishlist"
 
-    val TOP_LEVEL = setOf(CATALOG, MY_LEARNING, ACCOUNT)
+    val TOP_LEVEL = setOf(CATALOG, MY_LEARNING, ACCOUNT, MORE)
 
     fun courseDetail(courseId: String) = "course_detail/$courseId"
     fun checkout(courseIdsCsv: String) = "checkout/$courseIdsCsv"

@@ -21,8 +21,10 @@ import zw.co.eduquinn.app.ui.screens.certificate.CertificateScreen
 import zw.co.eduquinn.app.ui.screens.checkout.CheckoutScreen
 import zw.co.eduquinn.app.ui.screens.checkout.OrderStatusScreen
 import zw.co.eduquinn.app.ui.screens.coursedetail.CourseDetailScreen
+import zw.co.eduquinn.app.ui.screens.more.MoreScreen
 import zw.co.eduquinn.app.ui.screens.mylearning.MyLearningScreen
 import zw.co.eduquinn.app.ui.screens.player.LessonPlayerScreen
+import zw.co.eduquinn.app.ui.screens.wishlist.WishlistScreen
 
 /**
  * Top-level NavHost. Catalog/My Learning/Account are the 3 bottom-tab
@@ -54,6 +56,8 @@ fun EduQuinnNavHost(
             composable(Destinations.CATALOG) { CatalogScreen(app = app, navController = navController) }
             composable(Destinations.MY_LEARNING) { MyLearningScreen(app = app, navController = navController) }
             composable(Destinations.ACCOUNT) { AccountScreen(app = app, navController = navController) }
+            composable(Destinations.MORE) { MoreScreen() }
+            composable(Destinations.WISHLIST) { WishlistScreen(app = app, navController = navController) }
 
             composable(
                 Destinations.COURSE_DETAIL,

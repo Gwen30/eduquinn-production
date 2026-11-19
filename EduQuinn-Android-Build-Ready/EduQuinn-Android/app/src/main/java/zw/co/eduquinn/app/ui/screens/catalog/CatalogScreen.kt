@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
@@ -69,6 +70,11 @@ fun CatalogScreen(
             TopAppBar(
                 title = { Text("EduQuinn") },
                 actions = {
+                    IconButton(onClick = { navController.navigate(Destinations.WISHLIST) }) {
+                        BadgedBox(badge = { if (uiState.wishlistIds.isNotEmpty()) Badge { Text("${uiState.wishlistIds.size}") } }) {
+                            Icon(Icons.Filled.FavoriteBorder, contentDescription = "Wishlist")
+                        }
+                    }
                     IconButton(
                         onClick = {
                             if (cartItems.isNotEmpty()) {

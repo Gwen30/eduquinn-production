@@ -1,5 +1,6 @@
 package zw.co.eduquinn.app.ui.screens.catalog
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,7 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Schedule
@@ -23,6 +28,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -34,9 +40,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import zw.co.eduquinn.app.R
 import zw.co.eduquinn.app.data.model.Course
 import zw.co.eduquinn.app.data.model.PublicStats
 import zw.co.eduquinn.app.ui.components.CATALOG_CATEGORIES
@@ -90,6 +100,8 @@ fun CatalogHero(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.size(12.dp))
+        HeroIllustrationCard()
         if (stats != null) {
             Spacer(Modifier.size(12.dp))
             Card(elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
@@ -101,6 +113,42 @@ fun CatalogHero(
                     StatItem(stats.courses, "Published courses")
                     StatItem(stats.instructors, "Instructors")
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The hero's decorative `.portrait-card` from index.html: a photo with a
+ * floating "Keep learning." note, shown above the stats card. The real
+ * site keeps this visible at every width (its mobile media query only
+ * resizes it, never hides it), so this isn't optional polish — leaving it
+ * out was an actual gap from the website's layout. R.drawable.hero_illustration
+ * is the person-at-a-laptop photo supplied for this card specifically.
+ */
+@Composable
+private fun HeroIllustrationCard(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(150.dp)
+            .clip(RoundedCornerShape(20.dp)),
+    ) {
+        Image(
+            painter = painterResource(R.drawable.hero_illustration),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Surface(
+            modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(12.dp),
+            shadowElevation = 3.dp,
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text("Keep learning.", style = MaterialTheme.typography.labelSmall)
+                Text("You're doing great!", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -282,6 +330,61 @@ fun BenefitsStrip(modifier: Modifier = Modifier) {
                 Column {
                     Text(benefit.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(benefit.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+private data class BusinessFeature(val icon: ImageVector, val title: String, val subtitle: String)
+
+private val BUSINESS_FEATURES = listOf(
+    BusinessFeature(Icons.Filled.Business, "Organisation accounts", "Manage teams in one place"),
+    BusinessFeature(Icons.Filled.BarChart, "Progress analytics", "Track learning outcomes"),
+    BusinessFeature(Icons.Filled.School, "Assigned learning", "Create focused learning paths"),
+)
+
+/**
+ * The dark "EduQuinn Business" CTA block from index.html's `.business`
+ * section — sits between the benefits strip and the footer on the real
+ * site, and was missing from the native home screen entirely. Uses the
+ * theme's inverse* roles (set explicitly in Theme.kt) rather than new
+ * color tokens, since those already give the flat near-black-on-cream
+ * flip this card needs.
+ */
+@Composable
+fun BusinessPromoSection(onExploreClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.inverseSurface,
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Text(
+                "EDUQUINN BUSINESS",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.inversePrimary,
+            )
+            Spacer(Modifier.size(8.dp))
+            Text("Build stronger teams through learning", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.size(8.dp))
+            Text(
+                "Assign courses, track progress and develop workplace skills from one platform.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.size(16.dp))
+            Button(onClick = onExploreClick) { Text("Explore business plans") }
+            Spacer(Modifier.size(20.dp))
+            BUSINESS_FEATURES.forEach { feature ->
+                Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(feature.icon, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.size(12.dp))
+                    Column {
+                        Text(feature.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(feature.subtitle, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }

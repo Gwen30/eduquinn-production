@@ -17,8 +17,8 @@ android {
         // seen, even on a brand-new, never-published app - bump this every
         // time you need to upload a new build, including just to replace a
         // closed-testing release while chasing down a fix.
-        versionCode 7
-        versionName "1.4.0"
+        versionCode 22
+        versionName "1.6.8"
     }
 
     signingConfigs {

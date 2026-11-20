@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EduQuinn — clickable mockup</title>
+<style>
+  :root{
+    --primary:#A6445D; --on-primary:#FFFFFF;
+    --secondary:#62929E; --on-secondary:#142F40;
+    --tertiary:#393A10; --on-tertiary:#FFFFFF;
+    --background:#F8F4EA; --on-background:#142F40;
+    --surface:#E7DECD; --on-surface:#142F40;
+    --outline:#DCD2BE;
+    --muted:#5C7681;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#2b2b2b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--on-background)}
+  .page{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:28px 16px 48px}
+  .hint{color:#ddd;font-size:13px;text-align:center;max-width:320px;margin:0 0 18px;line-height:1.5}
+  .hint b{color:#fff}
+
+  .phone{
+    width:320px;height:690px;border-radius:34px;background:#000;padding:10px;
+    box-shadow:0 30px 60px rgba(0,0,0,.45);position:relative;flex:none;
+  }
+  .screen-area{
+    width:100%;height:100%;border-radius:26px;overflow:hidden;background:var(--background);
+    display:flex;flex-direction:column;position:relative;
+  }
+  .statusbar{height:26px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:11px;font-weight:600;background:var(--background);color:var(--on-background)}
+
+  .topbar{flex:none;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--background);border-bottom:1px solid var(--outline);min-height:44px}
+  .topbar .icon-btn{width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+  .topbar .icon-btn:active{background:var(--outline)}
+  .topbar .title{font-weight:700;font-size:15px;flex:1;line-height:1.2}
+  .topbar .subtitle{font-size:11px;color:var(--muted);font-weight:500}
+
+  .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .content::-webkit-scrollbar{display:none}
+
+  .bottomnav{flex:none;display:flex;border-top:1px solid var(--outline);background:var(--background)}
+  .bottomnav .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 10px;cursor:pointer;color:var(--muted)}
+  .bottomnav .tab.active{color:var(--primary)}
+  .bottomnav .tab span{font-size:10px;font-weight:600}
+
+  .eyebrow{font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--secondary);margin:0 0 6px;text-transform:uppercase}
+  .headline{font-size:20px;font-weight:800;margin:0 0 8px;line-height:1.25;color:var(--on-background)}
+  .intro{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 0 16px}
+  .pagehead{padding:18px 16px 14px}
+
+  .card{background:#fff;border:1px solid var(--outline);border-radius:14px;padding:14px;margin:0 16px 12px}
+  .row{display:flex;align-items:center}
+  .row-between{display:flex;align-items:center;justify-content:space-between}
+  .gap6{gap:6px} .gap8{gap:8px} .gap10{gap:10px}
+
+  .pill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:10px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;background:var(--primary);color:var(--on-primary);width:100%}
+  .btn:active{opacity:.85}
+  .btn-outline{background:transparent;color:var(--primary);border:1.5px solid var(--primary)}
+  .btn-ghost{background:transparent;color:var(--secondary);font-weight:700;border:none;padding:6px 4px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:12.5px}
+  .btn-row{display:flex;gap:8px;margin-top:10px}
+  .btn-row .btn{flex:1}
+
+  .chip-row{display:flex;gap:8px;padding:0 16px 14px;overflow-x:auto}
+  .chip{flex:none;font-size:12px;font-weight:700;padding:7px 14px;border-radius:999px;border:1px solid var(--outline);background:#fff;color:var(--on-background);cursor:pointer}
+  .chip.active{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+
+  .icon{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .icon-sm{width:13px;height:13px}
+  .avatar{width:38px;height:38px;border-radius:19px;background:var(--secondary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none}
+  .meta-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-top:4px}
+
+  .search{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--outline);border-radius:12px;padding:10px 12px;margin:0 16px 14px;color:var(--muted);font-size:13px}
+  .search input{border:none;outline:none;background:transparent;font-size:13px;width:100%;color:var(--on-background)}
+
+  .course-card{display:flex;gap:10px;background:#fff;border:1px solid var(--outline);border-radius:14px;padding:12px;margin:0 16px 12px}
+  .course-thumb{width:56px;height:56px;border-radius:10px;background:var(--surface);display:flex;align-items:center;justify-content:center;flex:none;color:var(--primary)}
+  .course-title{font-size:13px;font-weight:700;line-height:1.3;margin:0 0 4px}
+  .price{font-weight:800;color:var(--primary);font-size:13.5px}
+
+  .thread{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--outline)}
+  .thread:active{background:var(--surface)}
+  .thread-name{font-weight:700;font-size:13.5px;margin:0 0 2px}
+  .thread-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+  .thread-time{font-size:11px;color:var(--muted);flex:none;margin-left:auto;align-self:flex-start}
+
+  .chat-area{flex:1;overflow-y:auto;padding:14px 14px 6px;display:flex;flex-direction:column;gap:10px}
+  .bubble{max-width:78%;background:var(--surface);border-radius:14px;padding:9px 12px;font-size:13px;line-height:1.4}
+  .bubble.mine{background:var(--primary);color:var(--on-primary);margin-left:auto}
+  .bubble small{display:block;margin-top:4px;font-size:10px;opacity:.65}
+  .compose{flex:none;border-top:1px solid var(--outline);padding:10px 14px;background:var(--background)}
+  .compose textarea{width:100%;border:1px solid var(--outline);border-radius:10px;padding:9px 10px;font-size:13px;font-family:inherit;resize:none;margin-bottom:8px;background:#fff;color:var(--on-background)}
+  .compose-row{display:flex;gap:8px}
+  .compose-row input{flex:1;border:1px solid var(--outline);border-radius:10px;padding:9px 10px;font-size:13px;background:#fff;color:var(--on-background)}
+  .compose-row .btn{width:auto;padding:9px 16px}
+
+  .more-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--outline);cursor:pointer}
+  .more-row:active{background:var(--surface)}
+  .more-row .label{flex:1;font-size:13.5px;font-weight:600}
+  .more-row .icon-circle{width:32px;height:32px;border-radius:16px;background:var(--surface);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none}
+
+  .note{margin:0 16px 14px;padding:12px 14px;border-radius:12px;background:var(--surface);font-size:12px;color:var(--on-surface);line-height:1.5}
+
+  .screen{display:none;flex-direction:column;height:100%}
+  .screen.visible{display:flex}
+
+  .presenter-card{margin:14px 16px;padding:16px;border-radius:14px;background:#fff;border:1px solid var(--outline);text-align:center}
+  .presenter-avatar{width:56px;height:56px;border-radius:28px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;margin:0 auto 10px}
+  .tabrow{display:flex;gap:18px;padding:0 16px 10px;border-bottom:1px solid var(--outline)}
+  .tabrow .tabbtn{font-size:12.5px;font-weight:700;color:var(--muted);padding-bottom:8px;cursor:pointer;border-bottom:2px solid transparent}
+  .tabrow .tabbtn.active{color:var(--primary);border-bottom-color:var(--primary)}
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="hint">Tap a <b>live class</b>, a <b>conversation</b>, or a <b>More</b> row to open it. Use the back arrow or the bottom tabs to get around — this previews the Deep Color Palette across the real app screens.</p>
+  <div class="phone">
+    <div class="screen-area">
+      <div class="statusbar"><span>9:41</span><span>●●●●  📶  🔋</span></div>
+
+      <!-- shared icon sprite -->
+      <svg style="display:none">
+        <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+        <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+        <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></symbol>
+        <symbol id="i-group" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path d="M3 20c0-3.2 2.8-5 6-5s6 1.8 6 5M14 14.5c2.6.2 6 1.6 6 5.5"/></symbol>
+        <symbol id="i-add" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+        <symbol id="i-store" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/></symbol>
+        <symbol id="i-live" viewBox="0 0 24 24"><rect x="2" y="7" width="15" height="10" rx="2"/><path d="M22 9l-5 3 5 3V9z"/></symbol>
+        <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+        <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></symbol>
+        <symbol id="i-cart" viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/><path d="M3 4h2l2.4 12.2a2 2 0 0 0 2 1.8h7.2a2 2 0 0 0 2-1.6L21 8H6"/></symbol>
+        <symbol id="i-biz" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M8 9V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/></symbol>
+        <symbol id="i-studio" viewBox="0 0 24 24"><path d="M12 2l3 7h7l-5.5 4.2 2 7.1L12 16l-6.5 4.3 2-7.1L2 9h7z"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+        <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4L10 14M20 14v6H4V4h6"/></symbol>
+      </svg>
+
+      <!-- ===================== CATALOG ===================== -->
+      <div class="screen visible" id="screen-catalog">
+        <div class="topbar">
+          <svg class="icon" style="stroke:var(--primary)"><use href="#i-store"/></svg>
+          <span class="title">EduQuinn</span>
+          <div class="icon-btn"><svg class="icon"><use href="#i-search"/></svg></div>
+        </div>
+        <div class="content">
+          <div class="pagehead">
+            <p class="eyebrow">Learn something new</p>
+            <p class="headline">Courses worth finishing</p>
+            <p class="intro">Practical, instructor-led courses for Zimbabwean learners — browse by category or search for a skill.</p>
+          </div>
+          <div class="search"><svg class="icon icon-sm"><use href="#i-search"/></svg><input placeholder="Search courses" readonly></div>
+          <div class="chip-row">
+            <div class="chip active">All</div><div class="chip">Business</div><div class="chip">Technology</div><div class="chip">Design</div>
+          </div>
+          <div class="course-card">
+            <div class="course-thumb"><svg class="icon" style="width:24px;height:24px"><use href="#i-biz"/></svg></div>
+            <div style="flex:1">
+              <p class="course-title">Starting a Small Business in Zimbabwe</p>
+              <div class="row-between"><span class="price">$18.00</span><span style="font-size:11px;color:var(--muted)">★ 4.8 (210)</span></div>
+            </div>
+          </div>
+          <div class="course-card">
+            <div class="course-thumb"><svg class="icon" style="width:24px;height:24px"><use href="#i-studio"/></svg></div>
+            <div style="flex:1">
+              <p class="course-title">Excel for Everyday Finance</p>
+              <div class="row-between"><span class="price">$12.00</span><span style="font-size:11px;color:var(--muted)">★ 4.6 (98)</span></div>
+            </div>
+          </div>
+          <div style="height:10px"></div>
+        </div>
+        <div class="bottomnav">
+          <div class="tab active" onclick="showRoot('screen-catalog',this)"><svg class="icon"><use href="#i-store"/></svg><span>Catalog</span></div>
+          <div class="tab" onclick="showRoot('screen-live-list',this)"><svg class="icon"><use href="#i-live"/></svg><span>Live</span></div>
+          <div class="tab" onclick="showRoot('screen-messages-list',this)"><svg class="icon"><use href="#i-msg"/></svg><span>Messages</span></div>
+          <div class="tab" onclick="showRoot('screen-more',this)"><svg class="icon"><use href="#i-more"/></svg><span>More</span></div>
+        </div>
+      </div>
+
+      <!-- ===================== LIVE CLASSES LIST ===================== -->
+      <div class="screen" id="screen-live-list">
+        <div class="content">
+          <div class="pagehead" style="padding-bottom:6px">
+            <p class="eyebrow">Live learning</p>
+            <p class="headline">Learn with instructors in real time</p>
+            <p class="intro">Reserve a seat, join interactive lessons and revisit completed sessions.</p>
+          </div>
+          <div class="chip-row" style="padding-bottom:12px">
+            <div class="chip">All classes</div><div class="chip active">Live now</div><div class="chip">Upcoming</div><div class="chip">Completed</div>
+          </div>
+
+          <div class="card" onclick="pushScreen('screen-live-room')" style="cursor:pointer">
+            <div class="row-between" style="margin-bottom:8px">
+              <div class="row gap8">
+                <div style="width:30px;height:30px;border-radius:8px;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--primary)"><svg class="icon icon-sm"><use href="#i-calendar"/></svg></div>
+                <span style="font-size:11px;font-weight:700;color:var(--secondary);letter-spacing:.05em">EXCEL FOR EVERYDAY FINANCE</span>
+              </div>
+              <span class="pill" style="background:#E8F6EC;color:#267842">Live now</span>
+            </div>
+            <p style="font-weight:800;font-size:14.5px;margin:0 0 6px">Pivot tables walkthrough</p>
+            <div class="meta-row"><svg class="icon icon-sm"><use href="#i-person"/></svg> Tendai Moyo</div>
+            <div class="meta-row"><svg class="icon icon-sm"><use href="#i-calendar"/></svg> Today · 2:00 PM</div>
+            <div class="meta-row"><svg class="icon icon-sm"><use href="#i-clock"/></svg> 45 min &nbsp;&nbsp; <svg class="icon icon-sm"><use href="#i-group"/></svg> 32 seats</div>
+            <div class="btn-row">
+              <button class="btn" onclick="event.stopPropagation(); pushScreen('screen-live-room')">Join now</button>
+              <button class="btn btn-outline" onclick="event.stopPropagation()" style="flex:none;padding:10px 12px"><svg class="icon icon-sm"><use href="#i-calendar"/></svg></button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row-between" style="margin-bottom:8px">
+              <div class="row gap8">
+                <div style="width:30px;height:30px;border-radius:8px;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--primary)"><svg class="icon icon-sm"><use href="#i-calendar"/></svg></div>
+                <span style="font-size:11px;font-weight:700;color:var(--secondary);letter-spacing:.05em">SMALL BUSINESS BASICS</span>
+              </div>
+              <span class="pill" style="background:#E8F6EC;color:#267842">Live now</span>
+            </div>
+            <p style="font-weight:800;font-size:14.5px;margin:0 0 6px">Registering your business — Q&amp;A</p>
+            <div class="meta-row"><svg class="icon icon-sm"><use href="#i-person"/></svg> Rutendo Chikwava</div>
+            <div class="meta-row"><svg class="icon icon-sm"><use href="#i-calendar"/></svg> Today · 4:30 PM</div>
+            <div class="meta-row"><svg class="icon icon-sm"><use href="#i-clock"/></svg> 30 min &nbsp;&nbsp; <svg class="icon icon-sm"><use href="#i-group"/></svg> 18 seats</div>
+            <div class="btn-row">
+              <button class="btn" onclick="pushScreen('screen-live-room')">Join now</button>
+              <button class="btn btn-outline" style="flex:none;padding:10px 12px"><svg class="icon icon-sm"><use href="#i-calendar"/></svg></button>
+            </div>
+          </div>
+          <div style="height:10px"></div>
+        </div>
+        <div class="bottomnav">
+          <div class="tab" onclick="showRoot('screen-catalog',this)"><svg class="icon"><use href="#i-store"/></svg><span>Catalog</span></div>
+          <div class="tab active" onclick="showRoot('screen-live-list',this)"><svg class="icon"><use href="#i-live"/></svg><span>Live</span></div>
+          <div class="tab" onclick="showRoot('screen-messages-list',this)"><svg class="icon"><use href="#i-msg"/></svg><span>Messages</span></div>
+          <div class="tab" onclick="showRoot('screen-more',this)"><svg class="icon"><use href="#i-more"/></svg><span>More</span></div>
+        </div>
+      </div>
+
+      <!-- ===================== LIVE CLASS ROOM ===================== -->
+      <div class="screen" id="screen-live-room">
+        <div class="topbar">
+          <div class="icon-btn" onclick="goBack()"><svg class="icon"><use href="#i-back"/></svg></div>
+          <div>
+            <div class="title">Pivot tables walkthrough</div>
+            <div class="subtitle">Excel for Everyday Finance · Tendai Moyo</div>
+          </div>
+        </div>
+        <div class="content" style="display:flex;flex-direction:column;flex:1">
+          <div class="presenter-card">
+            <div class="presenter-avatar">TM</div>
+            <p style="font-weight:700;font-size:14px;margin:0 0 10px">Tendai Moyo</p>
+            <button class="btn">Open video meeting</button>
+          </div>
+          <div class="tabrow">
+            <div class="tabbtn active">Chat</div>
+            <div class="tabbtn">Participants</div>
+          </div>
+          <div class="chat-area" style="flex:1">
+            <div class="bubble">Welcome everyone, we'll start in a minute.<small>2:00 PM</small></div>
+            <div class="bubble mine">Excited for this one!<small>2:01 PM</small></div>
+            <div class="bubble">Can you share the sample workbook?<small>2:02 PM</small></div>
+          </div>
+          <div class="compose">
+            <div class="compose-row">
+              <input placeholder="Write a message…" readonly>
+              <button class="btn">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== MESSAGES LIST ===================== -->
+      <div class="screen" id="screen-messages-list">
+        <div class="content">
+          <div class="pagehead" style="padding-bottom:6px">
+            <p class="eyebrow">Student communication</p>
+            <p class="headline">Messages</p>
+            <p class="intro">Ask your instructors about courses you are enrolled in.</p>
+          </div>
+          <div class="row-between" style="padding:0 16px 10px">
+            <span style="font-weight:800;font-size:14.5px">Conversations</span>
+            <span class="btn-ghost"><svg class="icon icon-sm"><use href="#i-add"/></svg> New message</span>
+          </div>
+          <div class="search"><svg class="icon icon-sm"><use href="#i-search"/></svg><input placeholder="Search conversations" readonly></div>
+
+          <div class="thread" onclick="pushScreen('screen-conversation')">
+            <div class="avatar">TM</div>
+            <div style="flex:1;min-width:0">
+              <p class="thread-name">Tendai Moyo</p>
+              <p class="thread-sub">Sure — I'll post the workbook after class.</p>
+            </div>
+            <span class="thread-time">2:03 PM</span>
+          </div>
+          <div class="thread" onclick="pushScreen('screen-conversation')">
+            <div class="avatar">RC</div>
+            <div style="flex:1;min-width:0">
+              <p class="thread-name">Rutendo Chikwava</p>
+              <p class="thread-sub">Small Business Basics</p>
+            </div>
+            <span class="thread-time">Yesterday</span>
+          </div>
+          <div class="thread" onclick="pushScreen('screen-conversation')">
+            <div class="avatar">NM</div>
+            <div style="flex:1;min-width:0">
+              <p class="thread-name">Nyasha Mutasa</p>
+              <p class="thread-sub">Thanks for the feedback on the quiz!</p>
+            </div>
+            <span class="thread-time">Mon</span>
+          </div>
+        </div>
+        <div class="bottomnav">
+          <div class="tab" onclick="showRoot('screen-catalog',this)"><svg class="icon"><use href="#i-store"/></svg><span>Catalog</span></div>
+          <div class="tab" onclick="showRoot('screen-live-list',this)"><svg class="icon"><use href="#i-live"/></svg><span>Live</span></div>
+          <div class="tab active" onclick="showRoot('screen-messages-list',this)"><svg class="icon"><use href="#i-msg"/></svg><span>Messages</span></div>
+          <div class="tab" onclick="showRoot('screen-more',this)"><svg class="icon"><use href="#i-more"/></svg><span>More</span></div>
+        </div>
+      </div>
+
+      <!-- ===================== CONVERSATION ===================== -->
+      <div class="screen" id="screen-conversation">
+        <div class="topbar">
+          <div class="icon-btn" onclick="goBack()"><svg class="icon"><use href="#i-back"/></svg></div>
+          <div>
+            <div class="title">Tendai Moyo</div>
+            <div class="subtitle">Excel for Everyday Finance</div>
+          </div>
+        </div>
+        <div class="content" style="display:flex;flex-direction:column;flex:1">
+          <div class="chat-area" style="flex:1">
+            <div class="bubble">Hi! Quick question about the pivot table exercise.<small>Mon, 9:14 AM</small></div>
+            <div class="bubble mine">Of course — what's going on?<small>Mon, 9:20 AM</small></div>
+            <div class="bubble">My totals row isn't updating when I filter.<small>Mon, 9:22 AM</small></div>
+            <div class="bubble mine">Sure — I'll post the workbook after class.<small>Today, 2:03 PM</small></div>
+          </div>
+          <div class="compose">
+            <textarea rows="2" placeholder="Write a message to your instructor..." readonly></textarea>
+            <button class="btn">Send message</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== MORE ===================== -->
+      <div class="screen" id="screen-more">
+        <div class="topbar"><span class="title">More</span></div>
+        <div class="content">
+          <div class="more-row" onclick="pushScreen('screen-purchases')">
+            <div class="icon-circle"><svg class="icon icon-sm"><use href="#i-cart"/></svg></div>
+            <span class="label">Purchases</span>
+            <svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-chevron"/></svg>
+          </div>
+          <div class="more-row" onclick="showRoot('screen-live-list')">
+            <div class="icon-circle"><svg class="icon icon-sm"><use href="#i-live"/></svg></div>
+            <span class="label">Live Classes</span>
+            <svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-chevron"/></svg>
+          </div>
+          <div class="more-row" onclick="showRoot('screen-messages-list')">
+            <div class="icon-circle"><svg class="icon icon-sm"><use href="#i-msg"/></svg></div>
+            <span class="label">Messages</span>
+            <svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-chevron"/></svg>
+          </div>
+          <div class="more-row">
+            <div class="icon-circle"><svg class="icon icon-sm"><use href="#i-biz"/></svg></div>
+            <span class="label">EduQuinn Business</span>
+            <svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-chevron"/></svg>
+          </div>
+          <div class="more-row">
+            <div class="icon-circle"><svg class="icon icon-sm"><use href="#i-studio"/></svg></div>
+            <span class="label">Instructor Studio</span>
+            <svg class="icon icon-sm" style="color:var(--muted)"><use href="#i-ext"/></svg>
+          </div>
+        </div>
+        <div class="bottomnav">
+          <div class="tab" onclick="showRoot('screen-catalog',this)"><svg class="icon"><use href="#i-store"/></svg><span>Catalog</span></div>
+          <div class="tab" onclick="showRoot('screen-live-list',this)"><svg class="icon"><use href="#i-live"/></svg><span>Live</span></div>
+          <div class="tab" onclick="showRoot('screen-messages-list',this)"><svg class="icon"><use href="#i-msg"/></svg><span>Messages</span></div>
+          <div class="tab active" onclick="showRoot('screen-more',this)"><svg class="icon"><use href="#i-more"/></svg><span>More</span></div>
+        </div>
+      </div>
+
+      <!-- ===================== PURCHASES ===================== -->
+      <div class="screen" id="screen-purchases">
+        <div class="topbar">
+          <div class="icon-btn" onclick="goBack()"><svg class="icon"><use href="#i-back"/></svg></div>
+          <span class="title">Purchases</span>
+        </div>
+        <div class="content">
+          <div class="pagehead" style="padding-bottom:6px">
+            <p class="eyebrow">My EduQuinn</p>
+            <p class="headline">Purchase history</p>
+            <p class="intro">Review your orders and payment status.</p>
+          </div>
+          <div class="note">Refunds are available within 7 days of purchase, provided you've completed less than 30% of the course. <span class="btn-ghost" style="padding:0">View refund policy</span></div>
+
+          <div class="card">
+            <div class="row-between"><span style="font-weight:800;font-size:13px">ORD-10482</span><span style="font-size:11px;color:var(--muted)">Oct 14, 2026</span></div>
+            <div class="meta-row" style="margin-top:8px">Courses: 1 course</div>
+            <div class="meta-row">Payment: Paynow (EcoCash)</div>
+            <div class="row-between" style="margin-top:10px">
+              <span class="price">$18.00</span>
+              <span class="pill" style="background:#E8F6EC;color:#267842">Paid</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="row-between"><span style="font-weight:800;font-size:13px">ORD-10411</span><span style="font-size:11px;color:var(--muted)">Sep 29, 2026</span></div>
+            <div class="meta-row" style="margin-top:8px">Courses: 2 courses</div>
+            <div class="meta-row">Payment: Bank transfer</div>
+            <div class="row-between" style="margin-top:10px">
+              <span class="price">$30.00</span>
+              <span class="pill" style="background:#FFF0D7;color:#8B5A00">Pending</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="row-between"><span style="font-weight:800;font-size:13px">ORD-10298</span><span style="font-size:11px;color:var(--muted)">Aug 3, 2026</span></div>
+            <div class="meta-row" style="margin-top:8px">Courses: 1 course</div>
+            <div class="meta-row">Payment: Paynow (Visa)</div>
+            <div class="row-between" style="margin-top:10px">
+              <span class="price">$22.00</span>
+              <span class="pill" style="background:#EEEEEE;color:#555555">Refunded</span>
+            </div>
+          </div>
+          <div style="height:10px"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  var stack = ['screen-catalog'];
+  function render(){
+    document.querySelectorAll('.screen').forEach(function(el){ el.classList.remove('visible'); });
+    document.getElementById(stack[stack.length-1]).classList.add('visible');
+  }
+  function pushScreen(id){ stack.push(id); render(); }
+  function goBack(){ if(stack.length>1){ stack.pop(); render(); } }
+  function showRoot(id, tabEl){
+    stack = [id];
+    render();
+    // sync the active tab highlight on whichever screen is now visible
+    var bar = document.getElementById(id).querySelector('.bottomnav');
+    if(bar){ bar.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');}); if(tabEl){ /* tabEl belongs to the screen we came from; find matching tab on target screen */ } }
+    document.querySelectorAll('#'+id+' .bottomnav .tab').forEach(function(t,i){
+      t.classList.remove('active');
+    });
+    var map = {'screen-catalog':0,'screen-live-list':1,'screen-messages-list':2,'screen-more':3};
+    var tabs = document.querySelectorAll('#'+id+' .bottomnav .tab');
+    if(tabs.length && map[id] !== undefined){ tabs[map[id]].classList.add('active'); }
+  }
+  render();
+</script>
+</body>
+</html>

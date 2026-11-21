@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="EduQuinn"
+        android:usesCleartextTraffic="false"
+        android:supportsRtl="true"
+        android:name=".EduQuinnApplication"
+        android:theme="@style/Theme.EduQuinn">
+
+        <!--
+          Fallback target for anything outside the native scope (live
+          classes, messaging, notifications, instructor/admin areas,
+          purchase history) — NativeActivity owns the launcher role and
+          the App Links intent-filter below; it forwards any URI it
+          doesn't recognize here unchanged (see
+          NativeActivity.resolveNativeStartRoute), so this activity's own
+          WebView deep-link interception, offline fallback, and
+          file-chooser handling still see exactly the same kind of intents
+          they always did.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.EduQuinn"
+            android:screenOrientation="unspecified" />
+
+        <!--
+          Launcher and App Links target. The native Catalog screen is
+          being redesigned to visually match the website (hero, stats,
+          categories, course cards) rather than falling back to a WebView
+          of the site, so this stays the real entry point rather than a
+          browser view.
+        -->
+        <activity
+            android:name=".ui.NativeActivity"
+            android:exported="true"
+            android:theme="@style/Theme.EduQuinn.Starting">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="eduquinn.co.zw" />
+                <data android:scheme="https" android:host="www.eduquinn.co.zw" />
+            </intent-filter>
+        </activity>
+
+        <!-- Lets the Certificate screen share a rendered certificate image
+             via the system share sheet (content:// URI, not a raw file path). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

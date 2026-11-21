@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+) backup/transfer rules. eq_secure_prefs holds the
+  eq_session cookie inside EncryptedSharedPreferences, whose key lives in
+  the Android Keystore and is never included in a backup or device
+  transfer. Restoring the file without the key is exactly what was
+  crashing the app at launch (see SecurePrefsStore.kt) - excluding it here
+  means a fresh install never gets a stale, undecryptable copy of it.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="eq_secure_prefs.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="eq_secure_prefs.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,5 +1,6 @@
 package zw.co.eduquinn.app.data.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -53,3 +54,52 @@ data class OrderResponse(val order: Order)
 
 @Serializable
 data class PaynowRedirectResponse(val redirectUrl: String)
+
+// --- Purchases / order history (GET /api/orders/mine) ---
+
+// courseId/priceCents come from a hand-built `json_build_object('courseId',
+// ..., 'priceCents', ...)` in the SQL itself (api/index.js), not a raw
+// column spread, so they need @SerialName — same reasoning as the other
+// hand-written-key responses in this app (see Support.kt/LiveClass.kt).
+@Serializable
+data class OrderItemLine(
+    @SerialName("courseId") val courseId: String,
+    val title: String,
+    @SerialName("priceCents") val priceCents: Int,
+)
+
+// The order row itself is a raw `o.*` spread (snake_case, auto-mapped),
+// but refundEligible/refundDeadline/refundReason are added afterward as
+// literal camelCase keys in a JS object spread — same @SerialName need.
+@Serializable
+data class OrderHistoryItem(
+    val id: String,
+    val status: String,
+    val totalCents: Int,
+    val subtotalCents: Int = 0,
+    val discountCents: Int = 0,
+    val currency: String = "USD",
+    val paymentMethod: String? = null,
+    val createdAt: String? = null,
+    val paidAt: String? = null,
+    val items: List<OrderItemLine> = emptyList(),
+    @SerialName("refundEligible") val refundEligible: Boolean = false,
+    @SerialName("refundDeadline") val refundDeadline: String? = null,
+    @SerialName("refundReason") val refundReason: String? = null,
+)
+
+@Serializable
+data class OrdersMineResponse(
+    val orders: List<OrderHistoryItem>,
+    @SerialName("refundWindowDays") val refundWindowDays: Int = 0,
+    @SerialName("refundMaxProgressPercent") val refundMaxProgressPercent: Int = 0,
+)
+
+@Serializable
+data class RefundRequestBody(val reason: String)
+
+@Serializable
+data class RefundRequestResponse(
+    @SerialName("refundId") val refundId: String? = null,
+    val status: String? = null,
+)

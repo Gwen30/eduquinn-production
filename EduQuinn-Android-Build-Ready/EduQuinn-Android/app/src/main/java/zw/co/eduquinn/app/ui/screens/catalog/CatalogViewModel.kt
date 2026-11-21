@@ -17,20 +17,37 @@ data class CatalogUiState(
     val stats: PublicStats? = null,
     val wishlistIds: Set<String> = emptySet(),
     val searchQuery: String = "",
+    val selectedCategory: String? = null,
+    val selectedStage: String? = null,
     val isLoading: Boolean = true,
     val error: String? = null,
 ) {
+    // Mirrors app.js's renderCourses() filter predicate exactly: category
+    // and stage are exact (case-insensitive) matches against the course's
+    // own fields, search is a substring match over title/category/
+    // instructor, and all three combine with AND.
     val visibleCourses: List<Course>
-        get() = if (searchQuery.isBlank()) {
-            allCourses
-        } else {
+        get() {
             val q = searchQuery.trim().lowercase()
-            allCourses.filter {
-                it.title.lowercase().contains(q) ||
-                    it.category?.lowercase()?.contains(q) == true ||
-                    it.instructorName?.lowercase()?.contains(q) == true
+            return allCourses.filter { course ->
+                (selectedCategory == null || course.category.equals(selectedCategory, ignoreCase = true)) &&
+                    (selectedStage == null || course.educationLevel.equals(selectedStage, ignoreCase = true)) &&
+                    (
+                        q.isBlank() ||
+                            course.title.lowercase().contains(q) ||
+                            course.category?.lowercase()?.contains(q) == true ||
+                            course.instructorName?.lowercase()?.contains(q) == true
+                        )
             }
         }
+
+    /**
+     * The same course set ranked by student count, same as app.js's
+     * "Popular courses" compact list — deliberately unaffected by the
+     * category/stage/search filters above, matching the web behavior.
+     */
+    val popularCourses: List<Course>
+        get() = allCourses.sortedByDescending { it.students }.take(6)
 }
 
 class CatalogViewModel(
@@ -74,6 +91,20 @@ class CatalogViewModel(
 
     fun onSearchQueryChange(query: String) {
         _uiState.value = _uiState.value.copy(searchQuery = query)
+    }
+
+    /** Tapping the already-active category clears it — same toggle behavior as app.js. */
+    fun onCategorySelect(category: String) {
+        _uiState.value = _uiState.value.copy(
+            selectedCategory = if (_uiState.value.selectedCategory == category) null else category,
+        )
+    }
+
+    /** Tapping the already-active stage clears it — same toggle behavior as app.js. */
+    fun onStageSelect(stage: String) {
+        _uiState.value = _uiState.value.copy(
+            selectedStage = if (_uiState.value.selectedStage == stage) null else stage,
+        )
     }
 
     /** Returns false (and does nothing) if the user needs to log in first. */

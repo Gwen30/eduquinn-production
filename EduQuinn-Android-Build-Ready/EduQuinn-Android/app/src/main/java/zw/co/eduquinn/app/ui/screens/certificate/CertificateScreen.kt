@@ -32,7 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.layer.rememberGraphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,6 +47,7 @@ import zw.co.eduquinn.app.EduQuinnApplication
 import zw.co.eduquinn.app.data.model.Certificate
 import zw.co.eduquinn.app.ui.components.ErrorState
 import zw.co.eduquinn.app.ui.components.LoadingState
+import zw.co.eduquinn.app.ui.theme.Gold
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -156,6 +157,8 @@ private fun CertificateCard(
             .padding(4.dp)
             .background(MaterialTheme.colorScheme.background)
             .border(BorderStroke(3.dp, MaterialTheme.colorScheme.primary), RoundedCornerShape(12.dp))
+            .padding(10.dp)
+            .border(BorderStroke(1.dp, Gold), RoundedCornerShape(6.dp))
             .padding(24.dp),
         contentAlignment = Alignment.Center,
     ) {

@@ -3,22 +3,25 @@ package zw.co.eduquinn.app.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.core.splashscreen.SplashScreen
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import zw.co.eduquinn.app.EduQuinnApplication
 import zw.co.eduquinn.app.MainActivity
 import zw.co.eduquinn.app.data.repository.SessionManager
-import zw.co.eduquinn.app.ui.components.LoadingState
+import zw.co.eduquinn.app.ui.components.BrandSplashScreen
 import zw.co.eduquinn.app.ui.nav.Destinations
 import zw.co.eduquinn.app.ui.nav.EduQuinnNavHost
 import zw.co.eduquinn.app.ui.theme.EduQuinnTheme
@@ -35,23 +38,21 @@ import zw.co.eduquinn.app.ui.theme.EduQuinnTheme
  * landing on a native 404 — see [resolveNativeStartRoute].
  */
 class NativeActivity : ComponentActivity() {
-    @Volatile
-    private var uiReady = false
     private var startRoute: String = Destinations.CATALOG
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Must be installed before super.onCreate(): shows the same branded
-        // cream-background/badge splash MainActivity used to show on cold
-        // start (Theme.EduQuinn.Starting in styles.xml), now bridging the
-        // moment between tapping the icon and the first Compose frame
-        // instead of the WebView's first frame. Held open until the
-        // session refresh resolves (SessionManager.initialized flips true
-        // at essentially the same moment uiReady is set below), with the
-        // same 4s safety-net cap MainActivity used, in case the network
-        // call never completes.
-        val splashScreen = SplashScreen.installSplashScreen(this)
-        splashScreen.setKeepOnScreenCondition { !uiReady }
-        Handler(Looper.getMainLooper()).postDelayed({ uiReady = true }, SPLASH_MAX_WAIT_MS)
+        // The platform SplashScreen API (Theme.EduQuinn.Starting - cream
+        // background + the EQ badge icon) can only show an icon on a flat
+        // background, so it only needs to bridge the instant gap between
+        // tapping the launcher icon and this Activity's first Compose
+        // frame; it's released the moment that frame exists. The website's
+        // full splash - badge + "EduQuinn" wordmark + tagline + loading
+        // dots - is BrandSplashScreen, a Compose screen drawn right after,
+        // which owns the actual ~3-5s branded moment below while the
+        // session check runs (see the min/max timers in setContent).
+        val splashScreen = installSplashScreen()
+        var composeReady = false
+        splashScreen.setKeepOnScreenCondition { !composeReady }
 
         super.onCreate(savedInstanceState)
         val app = application as EduQuinnApplication
@@ -72,17 +73,39 @@ class NativeActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             app.services.authRepository.refreshSession()
-            uiReady = true
         }
 
         setContent {
-            EduQuinnTheme {
+            composeReady = true
+            // Forced light, not isSystemInDarkTheme()'s default: the
+            // website has exactly one look (it has no dark mode), and the
+            // app is meant to match it, not diverge into a near-black
+            // Material scheme whenever the phone happens to be in system
+            // dark mode.
+            EduQuinnTheme(darkTheme = false) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    val initialized by SessionManager.initialized.collectAsState()
-                    if (initialized) {
+                    val sessionInitialized by SessionManager.initialized.collectAsState()
+                    var minTimeDone by remember { mutableStateOf(false) }
+                    var forceDone by remember { mutableStateOf(false) }
+
+                    // Same two bounds as before: never shorter than
+                    // MIN_SPLASH_MS (so it reads as an intentional brand
+                    // moment rather than a flicker on a fast connection),
+                    // never longer than MAX_SPLASH_MS even if the session
+                    // check stalls.
+                    LaunchedEffect(Unit) {
+                        delay(MIN_SPLASH_MS)
+                        minTimeDone = true
+                    }
+                    LaunchedEffect(Unit) {
+                        delay(MAX_SPLASH_MS)
+                        forceDone = true
+                    }
+
+                    if ((sessionInitialized && minTimeDone) || forceDone) {
                         EduQuinnNavHost(app, startDestination = startRoute)
                     } else {
-                        LoadingState()
+                        BrandSplashScreen()
                     }
                 }
             }
@@ -90,7 +113,8 @@ class NativeActivity : ComponentActivity() {
     }
 
     private companion object {
-        const val SPLASH_MAX_WAIT_MS = 4000L
+        const val MIN_SPLASH_MS = 3200L
+        const val MAX_SPLASH_MS = 5000L
     }
 }
 

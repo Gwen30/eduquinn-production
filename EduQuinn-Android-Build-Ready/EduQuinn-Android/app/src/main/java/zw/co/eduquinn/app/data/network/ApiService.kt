@@ -33,6 +33,12 @@ interface ApiService {
     @POST("api/auth/logout")
     suspend fun logout()
 
+    @POST("api/auth/mfa/verify")
+    suspend fun verifyMfa(@Body body: MfaVerifyRequest): AuthResponse
+
+    @POST("api/auth/resend-verification")
+    suspend fun resendVerification(@Body body: ResendVerificationRequest)
+
     // --- Catalog ---
     @GET("api/courses")
     suspend fun courses(@Query("level") level: String? = null): CoursesResponse
@@ -69,6 +75,12 @@ interface ApiService {
     @POST("api/orders/{id}/pay/paynow")
     suspend fun retryPaynow(@Path("id") id: String): PaynowRedirectResponse
 
+    @GET("api/orders/mine")
+    suspend fun ordersMine(): OrdersMineResponse
+
+    @POST("api/orders/{id}/refund-request")
+    suspend fun requestRefund(@Path("id") id: String, @Body body: RefundRequestBody): RefundRequestResponse
+
     // --- Learning ---
     @GET("api/enrolments")
     suspend fun enrolments(): EnrolmentsResponse
@@ -88,4 +100,44 @@ interface ApiService {
     // --- Certificate ---
     @POST("api/certificates/issue")
     suspend fun issueCertificate(@Body body: CertificateIssueRequest): CertificateResponse
+
+    // --- Support ---
+    @POST("api/support")
+    suspend fun submitSupport(@Body body: SupportRequest): SupportResponse
+
+    // --- Live classes (student-facing subset only — instructor scheduling
+    // endpoints are deliberately not declared here, see MoreScreen.kt) ---
+    @GET("api/live-classes")
+    suspend fun liveClasses(): LiveClassesResponse
+
+    @POST("api/live-classes/{id}/reserve")
+    suspend fun reserveLiveClass(@Path("id") id: String): LiveClassReservedResponse
+
+    @DELETE("api/live-classes/{id}/reserve")
+    suspend fun cancelLiveClassReservation(@Path("id") id: String): LiveClassReservedResponse
+
+    @POST("api/live-classes/{id}/join")
+    suspend fun joinLiveClass(@Path("id") id: String): LiveClassJoinResponse
+
+    @POST("api/live-classes/{id}/leave")
+    suspend fun leaveLiveClass(@Path("id") id: String)
+
+    @GET("api/live-classes/{id}/messages")
+    suspend fun liveClassMessages(@Path("id") id: String): LiveClassMessagesResponse
+
+    @POST("api/live-classes/{id}/messages")
+    suspend fun postLiveClassMessage(@Path("id") id: String, @Body body: LiveClassMessageRequest)
+
+    // --- Messages (student side of the shared conversations/messages API) ---
+    @GET("api/conversations")
+    suspend fun conversations(): ConversationsResponse
+
+    @POST("api/conversations")
+    suspend fun createConversation(@Body body: ConversationCreateRequest): ConversationCreateResponse
+
+    @GET("api/conversations/{id}/messages")
+    suspend fun conversationMessages(@Path("id") id: String): ConversationMessagesResponse
+
+    @POST("api/conversations/{id}/messages")
+    suspend fun postConversationMessage(@Path("id") id: String, @Body body: ConversationMessageRequest): ConversationMessageSentResponse
 }

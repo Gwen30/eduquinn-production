@@ -10,6 +10,9 @@ import zw.co.eduquinn.app.data.repository.CertificateRepository
 import zw.co.eduquinn.app.data.repository.CommerceRepository
 import zw.co.eduquinn.app.data.repository.CourseRepository
 import zw.co.eduquinn.app.data.repository.LearningRepository
+import zw.co.eduquinn.app.data.repository.LiveClassRepository
+import zw.co.eduquinn.app.data.repository.MessagingRepository
+import zw.co.eduquinn.app.data.repository.SupportRepository
 import zw.co.eduquinn.app.data.repository.WishlistRepository
 
 /**
@@ -48,4 +51,7 @@ class ServiceLocator(context: Application) {
     val commerceRepository = CommerceRepository(api)
     val learningRepository = LearningRepository(api)
     val certificateRepository = CertificateRepository(api)
+    val supportRepository = SupportRepository(api)
+    val liveClassRepository = LiveClassRepository(api)
+    val messagingRepository = MessagingRepository(api)
 }

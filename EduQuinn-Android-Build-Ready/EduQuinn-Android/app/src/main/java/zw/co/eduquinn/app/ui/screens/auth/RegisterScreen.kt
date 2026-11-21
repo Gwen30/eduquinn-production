@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -65,50 +66,70 @@ fun RegisterScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Join EduQuinn", style = MaterialTheme.typography.headlineSmall)
-
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it; viewModel.dismissError() },
-                label = { Text("Full name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it; viewModel.dismissError() },
-                label = { Text("Email") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it; viewModel.dismissError() },
-                label = { Text("Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                supportingText = { Text("At least 10 characters, with a letter and a number.") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (uiState is RegisterUiState.Error) {
+            val pending = uiState as? RegisterUiState.PendingVerification
+            if (pending != null) {
+                Text("EMAIL VERIFICATION", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                Text("Check your email", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    (uiState as RegisterUiState.Error).message,
-                    color = MaterialTheme.colorScheme.error,
+                    "We've sent a verification link to ${pending.email}. Click it, then come back and log in.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-            }
+                TextButton(onClick = { viewModel.resendVerification(pending.email) }, enabled = !pending.resending) {
+                    Text(
+                        when {
+                            pending.resending -> "Sending…"
+                            pending.resent -> "Email sent — check your inbox"
+                            else -> "Resend verification email"
+                        },
+                    )
+                }
+            } else {
+                Text("JOIN EDUQUINN", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                Text("Create your account", style = MaterialTheme.typography.headlineSmall)
 
-            PrimaryButton(
-                text = "Create account",
-                loading = uiState is RegisterUiState.Loading,
-                onClick = {
-                    viewModel.register(name, email, password) {
-                        navController.popBackStack()
-                    }
-                },
-            )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; viewModel.dismissError() },
+                    label = { Text("Full name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it; viewModel.dismissError() },
+                    label = { Text("Email") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it; viewModel.dismissError() },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    supportingText = { Text("At least 10 characters, with a letter and a number.") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (uiState is RegisterUiState.Error) {
+                    Text(
+                        (uiState as RegisterUiState.Error).message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                PrimaryButton(
+                    text = "Create account",
+                    loading = uiState is RegisterUiState.Loading,
+                    onClick = {
+                        viewModel.register(name, email, password) {
+                            navController.popBackStack()
+                        }
+                    },
+                )
+            }
         }
     }
 }

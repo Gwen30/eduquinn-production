@@ -13,13 +13,22 @@ sealed interface RegisterUiState {
     data object Idle : RegisterUiState
     data object Loading : RegisterUiState
     data class Error(val message: String) : RegisterUiState
+    data class PendingVerification(
+        val email: String,
+        val resending: Boolean = false,
+        val resent: Boolean = false,
+    ) : RegisterUiState
 }
 
 /**
  * Student registration only for this native pass — the API's `role` field
- * also supports "instructor" (with an expertise picker), but instructor
- * onboarding stays on the web app for now, matching the native rewrite's
- * v1 scope.
+ * also supports "instructor" (with an expertise picker and an immediate
+ * 2FA enrolment gate), but instructor onboarding stays on the web app for
+ * now, matching the native rewrite's v1 scope. A brand-new student
+ * account never gets a session straight away though: /api/auth/register
+ * sends a verification email and returns `pendingVerification` instead of
+ * a user, so this has to branch on the response rather than assume
+ * success always means "logged in".
  */
 class RegisterViewModel(private val authRepository: AuthRepository) : ViewModel() {
 
@@ -45,15 +54,31 @@ class RegisterViewModel(private val authRepository: AuthRepository) : ViewModel(
         viewModelScope.launch {
             val result = authRepository.register(trimmedName, trimmedEmail, password)
             result.fold(
-                onSuccess = {
-                    _uiState.value = RegisterUiState.Idle
-                    onSuccess()
+                onSuccess = { response ->
+                    _uiState.value = when {
+                        response.user != null -> {
+                            onSuccess()
+                            RegisterUiState.Idle
+                        }
+                        response.pendingVerification -> RegisterUiState.PendingVerification(response.email ?: trimmedEmail)
+                        else -> RegisterUiState.Error("Something went wrong. Please try again.")
+                    }
                 },
                 onFailure = { error ->
                     val message = (error as? ApiException)?.message ?: "Something went wrong. Please try again."
                     _uiState.value = RegisterUiState.Error(message)
                 },
             )
+        }
+    }
+
+    fun resendVerification(email: String) {
+        val state = _uiState.value
+        if (state !is RegisterUiState.PendingVerification) return
+        _uiState.value = state.copy(resending = true)
+        viewModelScope.launch {
+            authRepository.resendVerification(email)
+            _uiState.value = RegisterUiState.PendingVerification(email, resending = false, resent = true)
         }
     }
 

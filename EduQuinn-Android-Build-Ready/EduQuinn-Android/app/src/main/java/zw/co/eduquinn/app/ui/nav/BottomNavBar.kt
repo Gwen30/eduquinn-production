@@ -2,6 +2,7 @@ package zw.co.eduquinn.app.ui.nav
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Icon
@@ -9,6 +10,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -20,6 +22,7 @@ private val TABS = listOf(
     BottomTab(Destinations.CATALOG, "Explore", Icons.Filled.Explore),
     BottomTab(Destinations.MY_LEARNING, "My Learning", Icons.Filled.School),
     BottomTab(Destinations.ACCOUNT, "Account", Icons.Filled.Person),
+    BottomTab(Destinations.MORE, "More", Icons.Filled.MoreHoriz),
 )
 
 @Composable

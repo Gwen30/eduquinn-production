@@ -12,10 +12,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,6 +35,7 @@ import zw.co.eduquinn.app.EduQuinnApplication
 import zw.co.eduquinn.app.ui.components.LoadingState
 import zw.co.eduquinn.app.ui.nav.Destinations
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderStatusScreen(
     app: EduQuinnApplication,
@@ -53,15 +57,23 @@ fun OrderStatusScreen(
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        when {
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Order status") }) },
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            when {
             uiState.isLoading -> LoadingState()
             uiState.order?.status == "paid" -> {
-                Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(64.dp))
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(64.dp),
+                )
                 Text("Payment confirmed!", style = MaterialTheme.typography.headlineSmall)
                 Text(
                     "You're enrolled — head to My Learning to get started.",
@@ -74,7 +86,12 @@ fun OrderStatusScreen(
                 ) { Text("Go to My Learning") }
             }
             uiState.order?.status == "pending_gateway" -> {
-                Icon(Icons.Filled.HourglassEmpty, contentDescription = null, modifier = Modifier.size(64.dp))
+                Icon(
+                    Icons.Filled.HourglassEmpty,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(64.dp),
+                )
                 Text("Waiting for payment", style = MaterialTheme.typography.headlineSmall)
                 Text(
                     "We haven't received confirmation yet. If you've completed payment, check again in a moment.",
@@ -99,6 +116,7 @@ fun OrderStatusScreen(
                 Button(onClick = viewModel::checkAgain, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Text("Check again")
                 }
+            }
             }
         }
     }

@@ -100,11 +100,13 @@ are approximately:
 
 - [ ] Declare data is encrypted in transit (HTTPS only — the manifest sets
       `android:usesCleartextTraffic="false"`).
-- [ ] Declare whether you support account/data deletion requests in-app or
-      via a method (the Privacy Policy's "Your choices and rights" section
-      points users to the Support page — decide whether to also build an
-      in-app delete-account flow, which Play increasingly expects for
-      account-based apps).
+- [ ] Account deletion: a dedicated page now exists at
+      **https://eduquinn.co.zw/delete-account.html** — enter that exact URL
+      in the Data Safety section's account-deletion field. It explains how
+      to request deletion (a pre-filled Support ticket) and what is and
+      isn't removed. There's still no *in-app* self-service delete button —
+      if Play's review flags that, building one is the next step up from
+      this page.
 - [ ] Re-check this table against the live app before submitting — this
       checklist describes the schema as of November 2026; if new features
       (e.g. real push notifications) are added later, update this section
@@ -147,7 +149,9 @@ are approximately:
 ## Known follow-ups not yet built
 - No real push notifications (`POST_NOTIFICATIONS` was removed rather than
   implemented — revisit if/when you want push).
-- No in-app account-deletion flow yet (currently via Support contact only —
-  see Data Safety note above).
-- Screenshots for the store listing still need to be captured from a real
-  or emulated device.
+- No *in-app* account-deletion flow yet — deletion is a web page
+  (`/delete-account.html`) plus a Support-ticket request, which satisfies
+  the Data Safety form's URL field but not necessarily a stricter in-app
+  requirement if Play's review calls for one.
+- Store listing screenshots (icon, feature graphic, 5 phone screenshots)
+  have already been generated — see the files delivered earlier in chat.

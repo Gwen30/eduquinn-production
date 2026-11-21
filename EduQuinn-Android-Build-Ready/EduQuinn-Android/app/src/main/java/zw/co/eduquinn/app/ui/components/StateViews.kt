@@ -43,14 +43,24 @@ fun ErrorState(
 }
 
 @Composable
-fun EmptyState(message: String, modifier: Modifier = Modifier) {
+fun EmptyState(
+    message: String,
+    modifier: Modifier = Modifier,
+    action: (@Composable () -> Unit)? = null,
+) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(
-            message,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.padding(24.dp),
-        )
+        ) {
+            Text(
+                message,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            action?.invoke()
+        }
     }
 }

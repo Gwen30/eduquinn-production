@@ -22,7 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -269,7 +269,7 @@ private fun CategoryDropdown(category: String, onCategoryChange: (String) -> Uni
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             CATALOG_CATEGORIES.forEach { option ->
                 DropdownMenuItem(text = { Text(option.label) }, onClick = { onCategoryChange(option.label); expanded = false })
             }
@@ -291,7 +291,7 @@ private fun EducationLevelDropdown(level: String, onLevelChange: (String) -> Uni
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             CATALOG_STAGES.forEach { option ->
                 DropdownMenuItem(text = { Text(option.label) }, onClick = { onLevelChange(option.value); expanded = false })
             }

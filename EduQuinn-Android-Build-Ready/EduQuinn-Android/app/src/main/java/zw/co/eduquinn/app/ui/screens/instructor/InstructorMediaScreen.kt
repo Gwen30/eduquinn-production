@@ -31,7 +31,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -227,7 +227,7 @@ private fun CourseSelector(courses: List<InstructorCourse>, selectedId: String?,
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             courses.forEach { course ->
                 DropdownMenuItem(text = { Text(course.title) }, onClick = { onSelect(course.id); expanded = false })
             }
@@ -403,7 +403,7 @@ private fun LessonTypeDropdown(type: String, onTypeChange: (String) -> Unit) {
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             LESSON_TYPES.forEach { (value, optionLabel) ->
                 DropdownMenuItem(text = { Text(optionLabel) }, onClick = { onTypeChange(value); expanded = false })
             }
@@ -425,7 +425,7 @@ private fun AssetDropdown(assets: List<CourseAsset>, selectedId: String?, onSele
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("None") }, onClick = { onSelect(null); expanded = false })
             if (assets.isNotEmpty()) HorizontalDivider()
             assets.forEach { asset ->

@@ -20,7 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -367,7 +367,7 @@ private fun CourseSelectDropdown(courses: List<InstructorCourse>, selectedId: St
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (allowNone) DropdownMenuItem(text = { Text("General (no course)") }, onClick = { onSelect(null); expanded = false })
             courses.forEach { course ->
                 DropdownMenuItem(text = { Text(course.title) }, onClick = { onSelect(course.id); expanded = false })
@@ -390,7 +390,7 @@ private fun SessionTypeDropdown(type: String, onTypeChange: (String) -> Unit) {
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             SESSION_TYPES.forEach { (value, optionLabel) ->
                 DropdownMenuItem(text = { Text(optionLabel) }, onClick = { onTypeChange(value); expanded = false })
             }
@@ -412,7 +412,7 @@ private fun StatusDropdown(status: String, onStatusChange: (String) -> Unit) {
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             LIVE_STATUSES.forEach { (value, optionLabel) ->
                 DropdownMenuItem(text = { Text(optionLabel) }, onClick = { onStatusChange(value); expanded = false })
             }

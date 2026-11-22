@@ -1,5 +1,13 @@
 {
   "outputDirectory": "public",
+  "redirects": [
+    {
+      "source": "/((?!\\.well-known).*)",
+      "has": [{ "type": "host", "value": "eduquinn.co.zw" }],
+      "destination": "https://www.eduquinn.co.zw/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/health", "destination": "/api/index" },
     { "source": "/ready", "destination": "/api/index" },

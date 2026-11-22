@@ -231,6 +231,13 @@ fun CatalogScreen(
 
 @Composable
 private fun SectionHeading(eyebrow: String, title: String) {
-    Text(eyebrow, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
-    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    // Must be wrapped in a Column: these two Texts are the sole content of
+    // a LazyVerticalGrid item slot, and a bare pair of sibling composables
+    // there has no layout telling them to stack vertically, so without
+    // this wrapper they're placed on top of each other instead of one
+    // above the other.
+    Column {
+        Text(eyebrow, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    }
 }

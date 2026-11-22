@@ -27,14 +27,20 @@ class AuthRepository(
      * is actually present, so a half-finished MFA flow never looks logged
      * in.
      */
-    suspend fun login(email: String, password: String): Result<AuthResponse> = safeApiCall {
-        val response = api.login(LoginRequest(email = email, password = password))
+    suspend fun login(email: String, password: String, expectedRole: String = ""): Result<AuthResponse> = safeApiCall {
+        val response = api.login(LoginRequest(email = email, password = password, expectedRole = expectedRole))
         response.user?.let { SessionManager.set(it) }
         response
     }
 
-    suspend fun register(name: String, email: String, password: String): Result<AuthResponse> = safeApiCall {
-        val response = api.register(RegisterRequest(name = name, email = email, password = password))
+    suspend fun register(
+        name: String,
+        email: String,
+        password: String,
+        role: String = "student",
+        expertise: String? = null,
+    ): Result<AuthResponse> = safeApiCall {
+        val response = api.register(RegisterRequest(name = name, email = email, password = password, role = role, expertise = expertise))
         response.user?.let { SessionManager.set(it) }
         response
     }

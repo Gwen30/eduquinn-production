@@ -101,17 +101,26 @@ fun CatalogHero(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.size(12.dp))
-        HeroIllustrationCard()
-        if (stats != null) {
-            Spacer(Modifier.size(12.dp))
-            Card(elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+        // Bento redesign: the photo card and the live-stats card used to
+        // stack full-width, one above the other. The approved mockup puts
+        // them side by side as two tiles within the hero's own grid span —
+        // this Row is that change, not a new component.
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            HeroIllustrationCard(modifier = Modifier.weight(1f))
+            if (stats != null) {
+                Card(
+                    modifier = Modifier.weight(1f).height(150.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                 ) {
-                    StatItem(stats.students, "Students")
-                    StatItem(stats.courses, "Published courses")
-                    StatItem(stats.instructors, "Instructors")
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalArrangement = Arrangement.SpaceEvenly,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        StatItem(stats.students, "Students")
+                        StatItem(stats.courses, "Published courses")
+                        StatItem(stats.instructors, "Instructors")
+                    }
                 }
             }
         }
@@ -276,35 +285,39 @@ fun PopularCoursesList(courses: List<Course>, onCourseClick: (Course) -> Unit, m
     }
 }
 
-/** Static "Become an Instructor" / "Live Classes" promo cards — no live data, same copy as index.html. */
+/**
+ * "Become an Instructor" / "Live Classes" promo cards — no live data, same
+ * copy as index.html. Split into two standalone composables (this used to
+ * be one PromoCardsRow stacking both in a Column) so the bento home grid
+ * can place each as its own half-width grid cell instead of a single
+ * full-width block.
+ */
 @Composable
-fun PromoCardsRow(onInstructorClick: () -> Unit, onLiveClassesClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card {
-            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-                Spacer(Modifier.size(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("SHARE KNOWLEDGE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                    Text("Become an Instructor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Teach what you know and earn on EduQuinn.", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.size(8.dp))
-                    OutlinedButton(onClick = onInstructorClick) { Text("Start teaching") }
-                }
-            }
+fun InstructorPromoCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Icon(Icons.Filled.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.size(10.dp))
+            Text("SHARE KNOWLEDGE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+            Text("Become an Instructor", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Teach what you know and earn on EduQuinn.", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.size(8.dp))
+            OutlinedButton(onClick = onClick) { Text("Start teaching") }
         }
-        Card {
-            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Campaign, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-                Spacer(Modifier.size(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("REAL-TIME LEARNING", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
-                    Text("Live Classes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Interact with expert instructors in scheduled sessions.", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.size(8.dp))
-                    OutlinedButton(onClick = onLiveClassesClick) { Text("View upcoming classes") }
-                }
-            }
+    }
+}
+
+@Composable
+fun LiveClassesPromoCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Icon(Icons.Filled.Campaign, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.size(10.dp))
+            Text("REAL-TIME LEARNING", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+            Text("Live Classes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Interact with expert instructors in scheduled sessions.", style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.size(8.dp))
+            OutlinedButton(onClick = onClick) { Text("View upcoming classes") }
         }
     }
 }

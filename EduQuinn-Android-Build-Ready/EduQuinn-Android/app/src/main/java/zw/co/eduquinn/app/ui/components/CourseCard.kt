@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +39,7 @@ import zw.co.eduquinn.app.data.model.Course
  * that same mapping rather than wiring up an image loader against a URL
  * that doesn't exist.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CourseCard(
     course: Course,
@@ -88,10 +91,21 @@ fun CourseCard(
                 overflow = TextOverflow.Ellipsis,
             )
             course.instructorName?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Spacer(Modifier.size(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // FlowRow (not Row) for the same half-width-card reason as the
+            // price/button row below: the "N students" meta text can be too
+            // long to fit beside the star rating once the card is half the
+            // screen width in the bento grid, so it wraps instead of
+            // clipping or spilling past the card's edge.
+            FlowRow(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 RatingStars(course.rating, course.reviewCount)
                 // Mirrors the web card's meta line ("4.8 ★ · 312 students") —
                 // a separate field from reviewCount, so this is appended here
@@ -101,18 +115,30 @@ fun CourseCard(
                         " · ${course.students} student${if (course.students == 1) "" else "s"}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
             Spacer(Modifier.size(10.dp))
-            Row(
+            // FlowRow instead of a plain Row: at the bento grid's half-card
+            // width (2 columns on the home screen) "Add to cart" no longer
+            // fits beside the price on one line - a plain SpaceBetween Row
+            // would just clip it. FlowRow wraps the button onto its own
+            // line instead, which is the behavior the approved mockup's
+            // half-width course tiles use.
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 PriceTag(course.priceCents, course.currency)
-                OutlinedButton(onClick = onAddToCart, enabled = !isInCart) {
-                    Text(if (isInCart) "In cart" else "Add to cart")
+                OutlinedButton(
+                    onClick = onAddToCart,
+                    enabled = !isInCart,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(if (isInCart) "In cart" else "Add to cart", maxLines = 1)
                 }
             }
         }

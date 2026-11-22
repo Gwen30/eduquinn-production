@@ -22,6 +22,7 @@ import zw.co.eduquinn.app.ui.screens.certificate.CertificateScreen
 import zw.co.eduquinn.app.ui.screens.checkout.CheckoutScreen
 import zw.co.eduquinn.app.ui.screens.checkout.OrderStatusScreen
 import zw.co.eduquinn.app.ui.screens.coursedetail.CourseDetailScreen
+import zw.co.eduquinn.app.ui.screens.instructor.InstructorStudioScreen
 import zw.co.eduquinn.app.ui.screens.liveclasses.LiveClassRoomScreen
 import zw.co.eduquinn.app.ui.screens.liveclasses.LiveClassesScreen
 import zw.co.eduquinn.app.ui.screens.messages.ConversationScreen
@@ -83,6 +84,7 @@ fun EduQuinnNavHost(
                 )
             }
             composable(Destinations.MESSAGES) { MessagesScreen(app = app, navController = navController) }
+            composable(Destinations.INSTRUCTOR_STUDIO) { InstructorStudioScreen(app = app, navController = navController) }
             composable(
                 Destinations.CONVERSATION,
                 arguments = listOf(navArgument("conversationId") { type = NavType.StringType }),
@@ -113,11 +115,18 @@ fun EduQuinnNavHost(
                     app = app,
                     navController = navController,
                     returnTo = entry.arguments?.getString("returnTo"),
-                    onNavigateToRegister = { navController.navigate(Destinations.REGISTER) },
+                    onNavigateToRegister = { navController.navigate(Destinations.register()) },
                 )
             }
-            composable(Destinations.REGISTER) {
-                RegisterScreen(app = app, navController = navController)
+            composable(
+                Destinations.REGISTER,
+                arguments = listOf(navArgument("role") { type = NavType.StringType; nullable = true; defaultValue = null }),
+            ) { entry ->
+                RegisterScreen(
+                    app = app,
+                    navController = navController,
+                    initialRole = entry.arguments?.getString("role"),
+                )
             }
 
             composable(

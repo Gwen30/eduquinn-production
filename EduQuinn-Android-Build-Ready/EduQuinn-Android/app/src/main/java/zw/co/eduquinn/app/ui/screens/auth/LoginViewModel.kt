@@ -52,7 +52,7 @@ class LoginViewModel(private val authRepository: AuthRepository) : ViewModel() {
     // AuthRepository), so this only needs to trigger the caller's nav.
     private var pendingOnSuccess: (() -> Unit)? = null
 
-    fun login(email: String, password: String, onSuccess: () -> Unit) {
+    fun login(email: String, password: String, expectedRole: String, onSuccess: () -> Unit) {
         val trimmedEmail = email.trim()
         if (trimmedEmail.isEmpty() || password.isEmpty()) {
             _uiState.value = LoginUiState.Error("Enter your email and password.")
@@ -61,7 +61,7 @@ class LoginViewModel(private val authRepository: AuthRepository) : ViewModel() {
         pendingOnSuccess = onSuccess
         _uiState.value = LoginUiState.Loading
         viewModelScope.launch {
-            val result = authRepository.login(trimmedEmail, password)
+            val result = authRepository.login(trimmedEmail, password, expectedRole)
             result.fold(
                 onSuccess = { response -> handleAuthResponse(response, onSuccess) },
                 onFailure = { error ->
@@ -69,6 +69,12 @@ class LoginViewModel(private val authRepository: AuthRepository) : ViewModel() {
                     _uiState.value = if (apiError?.needsVerification == true) {
                         LoginUiState.NeedsVerification(apiError.email ?: trimmedEmail)
                     } else {
+                        // A role mismatch (e.g. picking "Teacher" with a
+                        // student account) 403s with a clear, specific
+                        // message from the backend ("This is not a student
+                        // account. Choose Teacher login if you are an
+                        // instructor.") — it needs no special handling here,
+                        // it's just whatever message the server sent.
                         LoginUiState.Error(apiError?.message ?: "Something went wrong. Please try again.")
                     }
                 },

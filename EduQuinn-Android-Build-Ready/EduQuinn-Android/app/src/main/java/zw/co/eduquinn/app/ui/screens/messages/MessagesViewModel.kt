@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import zw.co.eduquinn.app.data.model.Conversation
 import zw.co.eduquinn.app.data.model.Enrolment
+import zw.co.eduquinn.app.data.model.counterpartName
 import zw.co.eduquinn.app.data.repository.LearningRepository
 import zw.co.eduquinn.app.data.repository.MessagingRepository
 import zw.co.eduquinn.app.data.repository.SessionManager
@@ -24,14 +25,17 @@ data class MessagesUiState(
     // into the fresh conversation.
     val newConversationId: String? = null,
 ) {
-    // Matches messages.html's renderThreads(q) filter: instructor name or
-    // course title, case-insensitive.
+    // Matches messages.html's renderThreads(q) filter: the other person's
+    // name or course title, case-insensitive. "Other person" flips with
+    // role — counterpartName(myRole) is the student's name for an
+    // instructor viewer, the instructor's name for a student viewer.
     val visibleConversations: List<Conversation>
         get() {
+            val myRole = SessionManager.user.value?.role.orEmpty()
             val q = searchQuery.trim().lowercase()
             if (q.isBlank()) return conversations
             return conversations.filter {
-                it.instructorName.lowercase().contains(q) || it.courseTitle?.lowercase()?.contains(q) == true
+                it.counterpartName(myRole).lowercase().contains(q) || it.courseTitle?.lowercase()?.contains(q) == true
             }
         }
 }

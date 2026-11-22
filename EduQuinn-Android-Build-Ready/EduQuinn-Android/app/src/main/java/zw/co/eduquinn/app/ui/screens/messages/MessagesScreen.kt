@@ -43,6 +43,7 @@ import androidx.navigation.NavHostController
 import zw.co.eduquinn.app.EduQuinnApplication
 import zw.co.eduquinn.app.data.model.Conversation
 import zw.co.eduquinn.app.data.model.Enrolment
+import zw.co.eduquinn.app.data.model.counterpartName
 import zw.co.eduquinn.app.data.repository.SessionManager
 import zw.co.eduquinn.app.ui.components.ErrorState
 import zw.co.eduquinn.app.ui.components.LoadingState
@@ -62,6 +63,8 @@ fun MessagesScreen(app: EduQuinnApplication, navController: NavHostController) {
         },
     )
     val uiState by viewModel.uiState.collectAsState()
+    val myRole = SessionManager.user.collectAsState().value?.role ?: "student"
+    val isInstructor = myRole == "instructor"
 
     LaunchedEffect(uiState.newConversationId) {
         uiState.newConversationId?.let {
@@ -96,7 +99,7 @@ fun MessagesScreen(app: EduQuinnApplication, navController: NavHostController) {
                     Text("STUDENT COMMUNICATION", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
                     Text("Messages", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
-                        "Ask your instructors about courses you are enrolled in.",
+                        if (isInstructor) "Reply to students about the courses you teach." else "Ask your instructors about courses you are enrolled in.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -107,7 +110,13 @@ fun MessagesScreen(app: EduQuinnApplication, navController: NavHostController) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Conversations", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    TextButton(onClick = viewModel::openNewMessageDialog) { Text("New message") }
+                    // Hidden entirely for instructors, not just disabled —
+                    // the backend hard-403s POST /api/conversations for
+                    // any non-student (requireRole(['student'])), so an
+                    // instructor starting a thread isn't a real action here.
+                    if (!isInstructor) {
+                        TextButton(onClick = viewModel::openNewMessageDialog) { Text("New message") }
+                    }
                 }
                 OutlinedTextField(
                     value = uiState.searchQuery,
@@ -134,6 +143,7 @@ fun MessagesScreen(app: EduQuinnApplication, navController: NavHostController) {
                         items(uiState.visibleConversations, key = { it.id }) { conversation ->
                             ConversationRow(
                                 conversation = conversation,
+                                myRole = myRole,
                                 onClick = { navController.navigate(Destinations.conversation(conversation.id)) },
                             )
                         }
@@ -154,17 +164,18 @@ fun MessagesScreen(app: EduQuinnApplication, navController: NavHostController) {
 }
 
 @Composable
-private fun ConversationRow(conversation: Conversation, onClick: () -> Unit) {
+private fun ConversationRow(conversation: Conversation, myRole: String, onClick: () -> Unit) {
+    val counterpart = conversation.counterpartName(myRole)
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = onClick) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(initialsOf(conversation.instructorName), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                Text(initialsOf(counterpart), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
             }
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(conversation.instructorName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(counterpart, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Text(
                     conversation.lastMessage ?: conversation.courseTitle ?: "Course conversation",
                     style = MaterialTheme.typography.bodySmall,

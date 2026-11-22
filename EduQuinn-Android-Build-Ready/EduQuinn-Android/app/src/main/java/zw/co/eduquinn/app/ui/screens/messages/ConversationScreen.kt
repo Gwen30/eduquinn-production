@@ -37,6 +37,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavHostController
 import zw.co.eduquinn.app.EduQuinnApplication
 import zw.co.eduquinn.app.data.model.ConversationMessage
+import zw.co.eduquinn.app.data.model.counterpartName
 import zw.co.eduquinn.app.data.repository.SessionManager
 import zw.co.eduquinn.app.ui.components.ErrorState
 import zw.co.eduquinn.app.ui.components.LoadingState
@@ -54,7 +55,9 @@ fun ConversationScreen(app: EduQuinnApplication, navController: NavHostControlle
         },
     )
     val uiState by viewModel.uiState.collectAsState()
-    val currentUserId = SessionManager.user.collectAsState().value?.id
+    val currentUser = SessionManager.user.collectAsState().value
+    val currentUserId = currentUser?.id
+    val myRole = currentUser?.role ?: "student"
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -67,7 +70,7 @@ fun ConversationScreen(app: EduQuinnApplication, navController: NavHostControlle
             TopAppBar(
                 title = {
                     Column {
-                        Text(uiState.conversation?.instructorName ?: "Conversation", style = MaterialTheme.typography.titleMedium)
+                        Text(uiState.conversation?.counterpartName(myRole) ?: "Conversation", style = MaterialTheme.typography.titleMedium)
                         uiState.conversation?.courseTitle?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
                 },
@@ -107,7 +110,7 @@ fun ConversationScreen(app: EduQuinnApplication, navController: NavHostControlle
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { draft = it },
-                    placeholder = { Text("Write a message to your instructor...") },
+                    placeholder = { Text(if (myRole == "instructor") "Write a message to your student..." else "Write a message to your instructor...") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )

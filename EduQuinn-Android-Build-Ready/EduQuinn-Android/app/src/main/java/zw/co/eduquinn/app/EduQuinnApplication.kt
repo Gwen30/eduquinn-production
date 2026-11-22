@@ -5,10 +5,15 @@ import zw.co.eduquinn.app.data.local.PersistentCookieJar
 import zw.co.eduquinn.app.data.local.SecurePrefsStore
 import zw.co.eduquinn.app.data.network.ApiService
 import zw.co.eduquinn.app.data.network.NetworkModule
+import zw.co.eduquinn.app.data.repository.AnnouncementRepository
 import zw.co.eduquinn.app.data.repository.AuthRepository
 import zw.co.eduquinn.app.data.repository.CertificateRepository
 import zw.co.eduquinn.app.data.repository.CommerceRepository
 import zw.co.eduquinn.app.data.repository.CourseRepository
+import zw.co.eduquinn.app.data.repository.InstructorCourseRepository
+import zw.co.eduquinn.app.data.repository.InstructorEarningsRepository
+import zw.co.eduquinn.app.data.repository.InstructorLiveClassRepository
+import zw.co.eduquinn.app.data.repository.InstructorMediaRepository
 import zw.co.eduquinn.app.data.repository.LearningRepository
 import zw.co.eduquinn.app.data.repository.LiveClassRepository
 import zw.co.eduquinn.app.data.repository.MessagingRepository
@@ -54,4 +59,11 @@ class ServiceLocator(context: Application) {
     val supportRepository = SupportRepository(api)
     val liveClassRepository = LiveClassRepository(api)
     val messagingRepository = MessagingRepository(api)
+
+    // Instructor Studio
+    val instructorCourseRepository = InstructorCourseRepository(api)
+    val instructorMediaRepository = InstructorMediaRepository(api, okHttpClient)
+    val instructorEarningsRepository = InstructorEarningsRepository(api)
+    val instructorLiveClassRepository = InstructorLiveClassRepository(api)
+    val announcementRepository = AnnouncementRepository(api)
 }

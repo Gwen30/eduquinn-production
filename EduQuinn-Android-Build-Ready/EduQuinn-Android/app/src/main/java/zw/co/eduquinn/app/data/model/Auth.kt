@@ -71,9 +71,10 @@ data class LoginRequest(
     // is not available from the public login page") instead of silently
     // letting them through, which is what an unrecognized portal value did.
     val portal: String = "public",
-    // Left blank rather than hardcoded to "student": this screen has no
-    // role picker, so it shouldn't assert a role the backend then rejects
-    // real instructor accounts for.
+    // Set from LoginScreen's role-choice step ("student"/"instructor").
+    // The backend 403s with a clear message when this doesn't match the
+    // account's real role (e.g. picking "Teacher" for a student account),
+    // which is exactly the guardrail a role picker is supposed to add.
     @SerialName("expectedRole") val expectedRole: String = "",
 )
 

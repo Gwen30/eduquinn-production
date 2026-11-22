@@ -1,20 +1,19 @@
 package zw.co.eduquinn.app.ui.screens.auth
 
-import android.graphics.BitmapFactory
-import android.util.Base64
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,10 +29,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -63,6 +62,12 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    // Which role card the person tapped ("student" / "instructor") — pure
+    // UI-navigation state, held here rather than in the ViewModel, the
+    // same way email/password already are. Null means "show the role
+    // choice step", matching the real login.html's role-login-choice gate
+    // in front of the email/password form.
+    var selectedRole by remember { mutableStateOf<String?>(null) }
 
     val title = when (uiState) {
         is LoginUiState.MfaSetup -> "Set up two-factor authentication"
@@ -88,26 +93,73 @@ fun LoginScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             when (val state = uiState) {
-                is LoginUiState.MfaSetup -> MfaSetupStep(state, onSubmit = viewModel::submitMfaCode)
-                is LoginUiState.MfaChallenge -> MfaChallengeStep(state, onSubmit = viewModel::submitMfaCode)
-                is LoginUiState.MfaBackupCodes -> MfaBackupCodesStep(state, onContinue = viewModel::acknowledgeBackupCodes)
-                else -> LoginForm(
-                    email = email,
-                    onEmailChange = { email = it; viewModel.dismissError() },
-                    password = password,
-                    onPasswordChange = { password = it; viewModel.dismissError() },
-                    passwordVisible = passwordVisible,
-                    onTogglePasswordVisible = { passwordVisible = !passwordVisible },
-                    uiState = state,
-                    onSubmit = {
-                        viewModel.login(email, password) {
-                            navController.popBackStack(returnTo ?: "catalog", inclusive = false)
-                        }
-                    },
-                    onResendVerification = { viewModel.resendVerification(email) },
-                    onNavigateToRegister = onNavigateToRegister,
-                    onForgotPassword = { navController.navigate(Destinations.PASSWORD_HELP) },
-                )
+                is LoginUiState.MfaSetup -> MfaSetupStep(state.secret, state.qrDataUrl, state.verifying, state.error, onSubmit = viewModel::submitMfaCode)
+                is LoginUiState.MfaChallenge -> MfaChallengeStep(state.verifying, state.error, onSubmit = viewModel::submitMfaCode)
+                is LoginUiState.MfaBackupCodes -> MfaBackupCodesStep(state.codes, onContinue = viewModel::acknowledgeBackupCodes)
+                else -> if (selectedRole == null) {
+                    RoleChoiceStep(onSelect = { selectedRole = it })
+                } else {
+                    LoginForm(
+                        role = selectedRole!!,
+                        onChangeRole = { selectedRole = null; viewModel.dismissError() },
+                        email = email,
+                        onEmailChange = { email = it; viewModel.dismissError() },
+                        password = password,
+                        onPasswordChange = { password = it; viewModel.dismissError() },
+                        passwordVisible = passwordVisible,
+                        onTogglePasswordVisible = { passwordVisible = !passwordVisible },
+                        uiState = state,
+                        onSubmit = {
+                            viewModel.login(email, password, selectedRole!!) {
+                                navController.popBackStack(returnTo ?: "catalog", inclusive = false)
+                            }
+                        },
+                        onResendVerification = { viewModel.resendVerification(email) },
+                        onNavigateToRegister = onNavigateToRegister,
+                        onForgotPassword = { navController.navigate(Destinations.PASSWORD_HELP) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The role-choice gate shown before the email/password form — mirrors the
+ * approved mockup's two tappable cards (`role-login-choice` in the real
+ * login.html). Picking a role threads straight into LoginRequest's
+ * existing `expectedRole` field, so a student who accidentally lands on
+ * the wrong card gets a clear mismatch error from the backend rather than
+ * a confusing generic failure.
+ */
+@Composable
+private fun RoleChoiceStep(onSelect: (String) -> Unit) {
+    Text("WELCOME BACK", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+    Text("How are you signing in?", style = MaterialTheme.typography.headlineSmall)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        RoleChoiceCard(
+            icon = Icons.Filled.School,
+            title = "Student",
+            subtitle = "Learning, live classes and purchases",
+            onClick = { onSelect("student") },
+        )
+        RoleChoiceCard(
+            icon = Icons.Filled.Groups,
+            title = "Teacher",
+            subtitle = "Courses, students, messages and earnings",
+            onClick = { onSelect("instructor") },
+        )
+    }
+}
+
+@Composable
+private fun RoleChoiceCard(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 12.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -115,6 +167,8 @@ fun LoginScreen(
 
 @Composable
 private fun LoginForm(
+    role: String,
+    onChangeRole: () -> Unit,
     email: String,
     onEmailChange: (String) -> Unit,
     password: String,
@@ -127,8 +181,13 @@ private fun LoginForm(
     onNavigateToRegister: () -> Unit,
     onForgotPassword: () -> Unit,
 ) {
-    Text("WELCOME BACK", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
-    Text("Sign in", style = MaterialTheme.typography.headlineSmall)
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Column {
+            Text("WELCOME BACK", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+            Text(if (role == "instructor") "Teacher login" else "Student login", style = MaterialTheme.typography.headlineSmall)
+        }
+        TextButton(onClick = onChangeRole) { Text("← Change") }
+    }
 
     OutlinedTextField(
         value = email,
@@ -194,82 +253,5 @@ private fun LoginForm(
 
     TextButton(onClick = onNavigateToRegister) {
         Text("Don't have an account? Create one")
-    }
-}
-
-@Composable
-private fun MfaCodeField(code: String, onCodeChange: (String) -> Unit, label: String, error: String?) {
-    OutlinedTextField(
-        value = code,
-        onValueChange = { if (it.length <= 10) onCodeChange(it) },
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-        modifier = Modifier.fillMaxWidth(),
-    )
-    if (error != null) {
-        Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun MfaSetupStep(state: LoginUiState.MfaSetup, onSubmit: (String) -> Unit) {
-    var code by remember { mutableStateOf("") }
-    Text(
-        "EduQuinn requires instructors to protect their account with an authenticator app " +
-            "(Google Authenticator, Authy, 1Password, etc).",
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    qrBitmap(state.qrDataUrl)?.let { bitmap ->
-        Image(
-            bitmap = bitmap,
-            contentDescription = "Scan this QR code in your authenticator app",
-            modifier = Modifier.size(200.dp),
-        )
-    }
-    if (state.secret != null) {
-        Text("Can't scan it? Enter this code manually in your app:", style = MaterialTheme.typography.bodyMedium)
-        Text(state.secret, style = MaterialTheme.typography.bodyLarge, fontFamily = FontFamily.Monospace)
-    }
-    MfaCodeField(code, { code = it }, "6-digit code from your app", state.error)
-    PrimaryButton(text = "Confirm and enable", loading = state.verifying, onClick = { onSubmit(code) })
-}
-
-@Composable
-private fun MfaChallengeStep(state: LoginUiState.MfaChallenge, onSubmit: (String) -> Unit) {
-    var code by remember { mutableStateOf("") }
-    Text(
-        "Enter the 6-digit code from your authenticator app, or one of your backup codes if you don't have it.",
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    MfaCodeField(code, { code = it }, "Authentication code", state.error)
-    PrimaryButton(text = "Verify", loading = state.verifying, onClick = { onSubmit(code) })
-}
-
-@Composable
-private fun MfaBackupCodesStep(state: LoginUiState.MfaBackupCodes, onContinue: () -> Unit) {
-    Text(
-        "If you ever lose access to your authenticator app, use one of these one-time codes to " +
-            "sign in instead. Save them somewhere safe — they will not be shown again.",
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        state.codes.forEach { codeText ->
-            Text(codeText, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyLarge)
-        }
-    }
-    PrimaryButton(text = "I've saved these — continue", onClick = onContinue)
-}
-
-/** Decodes the backend's `data:image/png;base64,...` QR code into a drawable bitmap. */
-private fun qrBitmap(dataUrl: String?): ImageBitmap? {
-    if (dataUrl == null) return null
-    return try {
-        val base64 = dataUrl.substringAfter(",", "")
-        if (base64.isEmpty()) return null
-        val bytes = Base64.decode(base64, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-    } catch (_: Exception) {
-        null
     }
 }

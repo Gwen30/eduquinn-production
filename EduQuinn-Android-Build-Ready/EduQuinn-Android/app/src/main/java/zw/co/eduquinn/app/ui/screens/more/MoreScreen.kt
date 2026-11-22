@@ -1,7 +1,5 @@
 package zw.co.eduquinn.app.ui.screens.more
 
-import android.net.Uri
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,25 +27,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import zw.co.eduquinn.app.ui.nav.Destinations
 
 /**
- * `route` is non-null for every destination that's now natively built (see
- * the approved plan). Only Instructor Studio keeps `url` — it's a large,
- * deliberately-scoped-out instructor-side area (course CRUD, media
- * uploads, quiz authoring, payouts, live-class scheduling...), comparable
- * in size to the rest of the student-facing app, so it stays a Custom
- * Tabs hand-off like Paynow, not a code bug.
+ * Every row below is now natively built — Instructor Studio was the last
+ * Chrome Custom Tabs hand-off left in this list (it used to open
+ * instructor.html) and is now the native InstructorStudioScreen, gated
+ * inside that screen itself on whether the signed-in user is actually an
+ * instructor.
  */
 private data class MoreLink(
     val icon: ImageVector,
     val label: String,
-    val route: String? = null,
-    val url: String? = null,
+    val route: String,
     val livePill: Boolean = false,
 )
 
@@ -56,28 +51,19 @@ private val MORE_LINKS = listOf(
     MoreLink(Icons.Filled.Chat, "Messages", route = Destinations.MESSAGES),
     MoreLink(Icons.Filled.Receipt, "Purchases", route = Destinations.PURCHASES),
     MoreLink(Icons.Filled.AccountBalance, "EduQuinn Business", route = Destinations.BUSINESS),
-    MoreLink(Icons.Filled.School, "Instructor Studio", url = "https://eduquinn.co.zw/instructor.html"),
+    MoreLink(Icons.Filled.School, "Instructor Studio", route = Destinations.INSTRUCTOR_STUDIO),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoreScreen(navController: NavHostController) {
-    val context = LocalContext.current
-
     Scaffold(
         topBar = { TopAppBar(title = { Text("More") }) },
     ) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
             items(MORE_LINKS) { link ->
                 Surface(
-                    onClick = {
-                        val route = link.route
-                        if (route != null) {
-                            navController.navigate(route)
-                        } else if (link.url != null) {
-                            CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(link.url))
-                        }
-                    },
+                    onClick = { navController.navigate(link.route) },
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),

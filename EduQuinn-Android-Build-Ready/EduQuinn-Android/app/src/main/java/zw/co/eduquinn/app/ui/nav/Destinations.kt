@@ -15,7 +15,8 @@ object Destinations {
 
     const val LOGIN = "login?returnTo={returnTo}"
     const val LOGIN_BASE = "login"
-    const val REGISTER = "register"
+    const val REGISTER = "register?role={role}"
+    const val REGISTER_BASE = "register"
     const val COURSE_DETAIL = "course_detail/{courseId}"
     const val CHECKOUT = "checkout/{courseIdsCsv}"
     const val ORDER_STATUS = "order_status/{orderId}"
@@ -31,6 +32,7 @@ object Destinations {
     const val LIVE_CLASS_ROOM = "live_class_room/{classId}"
     const val MESSAGES = "messages"
     const val CONVERSATION = "conversation/{conversationId}"
+    const val INSTRUCTOR_STUDIO = "instructor_studio"
 
     val TOP_LEVEL = setOf(CATALOG, MY_LEARNING, ACCOUNT, MORE)
 
@@ -43,4 +45,6 @@ object Destinations {
     fun conversation(conversationId: String) = "conversation/$conversationId"
     fun login(returnTo: String? = null) =
         if (returnTo != null) "$LOGIN_BASE?returnTo=${java.net.URLEncoder.encode(returnTo, "UTF-8")}" else LOGIN_BASE
+    fun register(role: String? = null) =
+        if (role != null) "$REGISTER_BASE?role=${java.net.URLEncoder.encode(role, "UTF-8")}" else REGISTER_BASE
 }

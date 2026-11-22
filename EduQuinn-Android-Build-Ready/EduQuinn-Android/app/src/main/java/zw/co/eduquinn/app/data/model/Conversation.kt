@@ -27,6 +27,15 @@ data class Conversation(
 @Serializable
 data class ConversationsResponse(val conversations: List<Conversation>)
 
+/**
+ * The backend serves this same endpoint to both roles (a `Conversation`
+ * already carries both `studentName` and `instructorName`), so the only
+ * thing that needs to flip for an instructor viewer is which side is "the
+ * other person" — a student sees the instructor's name, an instructor
+ * sees the student's.
+ */
+fun Conversation.counterpartName(myRole: String): String = if (myRole == "instructor") studentName else instructorName
+
 // courseId here is a hand-written literal camelCase request body key
 // (api/index.js reads `x.courseId` directly), not a DB column name, so
 // it needs @SerialName — the global SnakeCase strategy would otherwise

@@ -4,7 +4,9 @@ import zw.co.eduquinn.app.data.model.*
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -105,8 +107,10 @@ interface ApiService {
     @POST("api/support")
     suspend fun submitSupport(@Body body: SupportRequest): SupportResponse
 
-    // --- Live classes (student-facing subset only — instructor scheduling
-    // endpoints are deliberately not declared here, see MoreScreen.kt) ---
+    // --- Live classes (student-facing subset — reserve/join/leave/chat;
+    // instructor scheduling/attendance endpoints are declared separately
+    // below under "Instructor Studio", since they're role-gated
+    // differently on the backend and used by different screens) ---
     @GET("api/live-classes")
     suspend fun liveClasses(): LiveClassesResponse
 
@@ -140,4 +144,68 @@ interface ApiService {
 
     @POST("api/conversations/{id}/messages")
     suspend fun postConversationMessage(@Path("id") id: String, @Body body: ConversationMessageRequest): ConversationMessageSentResponse
+
+    // --- Instructor Studio ---
+    @GET("api/instructor/courses")
+    suspend fun instructorCourses(): InstructorCoursesResponse
+
+    @POST("api/instructor/courses")
+    suspend fun createInstructorCourse(@Body body: CourseUpsertRequest): CourseUpsertResponse
+
+    @PATCH("api/instructor/courses/{id}")
+    suspend fun updateInstructorCourse(@Path("id") id: String, @Body body: CourseUpsertRequest): CourseUpsertResponse
+
+    @DELETE("api/instructor/courses/{id}")
+    suspend fun deleteInstructorCourse(@Path("id") id: String): CourseDeleteResponse
+
+    @GET("api/instructor/courses/{id}/assets")
+    suspend fun courseAssets(@Path("id") id: String): CourseAssetsResponse
+
+    // No request body — this issues a signed upload ticket only. The
+    // backend reads just the Content-Type header plus these query params;
+    // the file bytes go to a separate raw PUT against the ticket's own
+    // uploadUrl (see InstructorMediaRepository.uploadAsset).
+    @PUT("api/instructor/courses/{id}/assets")
+    suspend fun createUploadTicket(
+        @Path("id") id: String,
+        @Query("kind") kind: String,
+        @Query("name") name: String,
+    ): UploadTicket
+
+    @POST("api/instructor/courses/{id}/assets/{assetId}/confirm")
+    suspend fun confirmAsset(
+        @Path("id") id: String,
+        @Path("assetId") assetId: String,
+        @Body body: ConfirmAssetRequest,
+    ): ConfirmAssetResponse
+
+    @GET("api/instructor/courses/{id}/lessons")
+    suspend fun instructorLessons(@Path("id") id: String): InstructorLessonsResponse
+
+    @POST("api/instructor/courses/{id}/lessons")
+    suspend fun createLesson(@Path("id") id: String, @Body body: LessonCreateRequest): LessonCreateResponse
+
+    @GET("api/instructor/earnings")
+    suspend fun instructorEarnings(): InstructorEarningsResponse
+
+    @GET("api/instructor/live-classes")
+    suspend fun instructorLiveClasses(): InstructorLiveClassesResponse
+
+    @POST("api/instructor/live-classes")
+    suspend fun createInstructorLiveClass(@Body body: LiveClassCreateRequest): LiveClassCreateResponse
+
+    @PATCH("api/instructor/live-classes/{id}")
+    suspend fun updateInstructorLiveClass(@Path("id") id: String, @Body body: LiveClassUpdateRequest)
+
+    @DELETE("api/instructor/live-classes/{id}")
+    suspend fun cancelInstructorLiveClass(@Path("id") id: String)
+
+    @GET("api/instructor/live-classes/{id}/attendance")
+    suspend fun instructorLiveClassAttendance(@Path("id") id: String): AttendanceResponse
+
+    @GET("api/announcements")
+    suspend fun announcements(): AnnouncementsResponse
+
+    @POST("api/announcements")
+    suspend fun createAnnouncement(@Body body: AnnouncementCreateRequest): AnnouncementCreateResponse
 }

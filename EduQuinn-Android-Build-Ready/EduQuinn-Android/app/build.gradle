@@ -17,8 +17,8 @@ android {
         // seen, even on a brand-new, never-published app - bump this every
         // time you need to upload a new build, including just to replace a
         // closed-testing release while chasing down a fix.
-        versionCode 24
-        versionName "1.6.10"
+        versionCode 27
+        versionName "1.7.2"
     }
 
     signingConfigs {
